@@ -18,7 +18,9 @@ from sqlalchemy.orm import Session
 from db.models import Email, Professor
 from modules import config_loader, tracker
 
-# Minimal scopes. gmail.send is only requested when send mode is enabled.
+# Minimal scopes. gmail.send is only requested when send mode is enabled;
+# gmail.readonly is added when reply detection is enabled (Phase 3).
+READONLY = "https://www.googleapis.com/auth/gmail.readonly"
 COMPOSE_SCOPES = ["https://www.googleapis.com/auth/gmail.compose"]
 SEND_SCOPES = ["https://www.googleapis.com/auth/gmail.compose",
                "https://www.googleapis.com/auth/gmail.send"]
@@ -34,7 +36,10 @@ class SendNotPermitted(RuntimeError):
 
 def _scopes() -> list[str]:
     cfg = config_loader.config()
-    return SEND_SCOPES if cfg.get("approved_send_mode") else COMPOSE_SCOPES
+    scopes = list(SEND_SCOPES if cfg.get("approved_send_mode") else COMPOSE_SCOPES)
+    if cfg.get("reply_detection", {}).get("enabled"):
+        scopes.append(READONLY)
+    return scopes
 
 
 def is_authorised() -> bool:
@@ -160,13 +165,49 @@ def create_draft(session: Session, email: Email,
     return created["id"]
 
 
-def _dedupe_ok(session: Session, prof: Professor, this_email_id: int) -> bool:
-    """No prior 'sent' email to the same professor."""
+def fetch_thread_replies(thread_id: str) -> list[dict]:
+    """Return inbound (not-from-us) messages in a Gmail thread.
+
+    Used by reply detection. Gmail-optional: returns [] if Gmail is unauthorised,
+    the libraries are missing, or the API errors — never raises into the caller.
+    """
+    if not thread_id or not is_authorised():
+        return []
+    try:
+        service = get_service()
+        me = service.users().getProfile(userId="me").execute().get("emailAddress", "").lower()
+        thread = service.users().threads().get(
+            userId="me", id=thread_id, format="metadata",
+            metadataHeaders=["From", "Date"]).execute()
+    except Exception:  # pragma: no cover - network / auth
+        return []
+    inbound = []
+    for msg in thread.get("messages", []):
+        headers = {h["name"].lower(): h["value"]
+                   for h in msg.get("payload", {}).get("headers", [])}
+        sender = (headers.get("from", "") or "").lower()
+        if me and me in sender:
+            continue  # our own outgoing message
+        inbound.append({"from": headers.get("from"), "date": headers.get("date"),
+                        "message_id": msg.get("id")})
+    return inbound
+
+
+def _dedupe_ok(session: Session, prof: Professor, email: Email) -> bool:
+    """Block a *duplicate first-contact* email to the same professor.
+
+    A follow-up (is_followup, parent already sent, no reply yet) is a deliberate
+    second email and is allowed — "one professor, one *first-contact* email".
+    """
+    if email.is_followup:
+        parent = session.get(Email, email.parent_email_id) if email.parent_email_id else None
+        return bool(parent and parent.status == "sent" and not parent.reply_received)
     prior = (
         session.query(Email)
         .filter(Email.professor_id == prof.id,
                 Email.status == "sent",
-                Email.id != this_email_id)
+                Email.is_followup == False,  # noqa: E712 - SQLAlchemy boolean filter
+                Email.id != email.id)
         .first()
     )
     return prior is None
@@ -183,7 +224,7 @@ def send(session: Session, email: Email,
     prof = email.professor
     if not prof or not prof.email:
         raise SendNotPermitted("Professor email missing.")
-    if not _dedupe_ok(session, prof, email.id):
+    if not _dedupe_ok(session, prof, email):
         raise SendNotPermitted(
             f"Dedupe block: a prior email to {prof.email} was already sent. "
             "Override requires a logged manual reason."
@@ -200,7 +241,14 @@ def send(session: Session, email: Email,
                 userId="me", body={"raw": raw}
             ).execute()
             email.gmail_message_id = sent["id"]
-            email.sent_at = dt.datetime.now(dt.timezone.utc)
+            email.gmail_thread_id = sent.get("threadId")
+            now = dt.datetime.now(dt.timezone.utc)
+            email.sent_at = now
+            # Phase 3: stamp the follow-up clock at send time.
+            from modules import followups
+            email.sent_date = now.date()
+            if not email.is_followup:
+                email.followup_due_date = followups.followup_due_date(now.date())
             tracker.transition(session, email, "sent", {"message_id": sent["id"]})
             session.flush()
             return sent["id"]

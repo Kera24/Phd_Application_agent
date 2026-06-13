@@ -152,11 +152,17 @@ class Email(Base):
     sent_at: Mapped[Optional[dt.datetime]] = mapped_column(DateTime)
     created_at: Mapped[dt.datetime] = mapped_column(DateTime, default=_utcnow)
 
-    # Phase-3-ready follow-up fields (schema only; no logic built yet).
+    # Phase-3 follow-up + reply tracking.
     sent_date: Mapped[Optional[dt.date]] = mapped_column(Date)
     followup_due_date: Mapped[Optional[dt.date]] = mapped_column(Date)
     reply_received: Mapped[bool] = mapped_column(Boolean, default=False)
+    reply_received_at: Mapped[Optional[dt.datetime]] = mapped_column(DateTime)
     followup_status: Mapped[str] = mapped_column(String(16), default="not_needed")
+    # Gmail thread id (captured at send) — the key for reply lookups.
+    gmail_thread_id: Mapped[Optional[str]] = mapped_column(String(128))
+    # Follow-up linkage: a follow-up email points back at its first-contact email.
+    is_followup: Mapped[bool] = mapped_column(Boolean, default=False)
+    parent_email_id: Mapped[Optional[int]] = mapped_column(ForeignKey("emails.id"))
 
     opportunity: Mapped[Optional["Opportunity"]] = relationship(back_populates="emails")
     professor: Mapped[Optional["Professor"]] = relationship(back_populates="emails")
@@ -179,16 +185,22 @@ class PipelineEvent(Base):
 
 
 class Followup(Base):
-    """Phase 2 — fields created now, logic deferred."""
+    """Phase 3 — one record per due/generated follow-up.
+
+    `email_id` is the original (first-contact) email; `followup_email_id` is the
+    generated follow-up email (null until drafted).
+    """
 
     __tablename__ = "followups"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     email_id: Mapped[Optional[int]] = mapped_column(ForeignKey("emails.id"))
+    followup_email_id: Mapped[Optional[int]] = mapped_column(ForeignKey("emails.id"))
     sent_date: Mapped[Optional[dt.date]] = mapped_column(Date)
     followup_due_date: Mapped[Optional[dt.date]] = mapped_column(Date)
     reply_received: Mapped[bool] = mapped_column(Boolean, default=False)
     followup_status: Mapped[str] = mapped_column(String(16), default="pending")
+    created_at: Mapped[dt.datetime] = mapped_column(DateTime, default=_utcnow)
 
 
 class Publication(Base):

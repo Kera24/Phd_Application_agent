@@ -48,3 +48,13 @@ templates:
       - "Offer to send further materials / availability for a short call."
       - "Attachment list (CV + tailored summary by default; transcript on request)."
     default_attachments: [cv, summary_pdf]   # transcript only on request — lighter speculative email
+
+# Phase 3 — short, polite reminder for an unanswered first-contact email.
+# Subject is "Re: <original subject>"; no new claims, no re-attached documents.
+followup:
+  subject_hint: "Reply on the original thread: 'Re: <original subject>'."
+  structure:
+    - "Warm one-line reference to the earlier email (no guilt, no pressure)."
+    - "One sentence restating genuine interest in a PhD with the group."
+    - "Offer to share any further materials that would help; thank them for their time."
+  default_attachments: []   # a reminder carries no attachments

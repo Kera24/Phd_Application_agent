@@ -73,6 +73,20 @@ fit_score_threshold: 50          # below this -> parked in dashboard, no email
 highlight_threshold: 70
 posting_recheck_days: 7          # re-check posting URL if older than this
 
+# --- Phase 3: follow-ups + reply detection ----------------------------------
+followup:
+  enabled: true
+  after_business_days: 10        # draft a follow-up this many business days after send
+  max_followups: 1               # at most one follow-up per first-contact email
+  scan_interval_minutes: 60      # background job cadence (reply scan + due follow-ups)
+  word_min: 40                   # follow-up body length bounds (shorter than first contact)
+  word_max: 90
+
+reply_detection:
+  enabled: true                  # uses gmail.readonly when Gmail is authorised;
+                                 # otherwise reply status is set manually in the dashboard.
+                                 # Enabling this needs a one-time Gmail re-authorise (new scope).
+
 # --- Quality gate -----------------------------------------------------------
 quality_gate:
   body_word_min: 120

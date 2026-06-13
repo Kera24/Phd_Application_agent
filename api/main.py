@@ -39,6 +39,12 @@ async def lifespan(app: FastAPI):
     from agent.graph import build_graph
     from agent.checkpointer import build_checkpointer
     GRAPH = build_graph(build_checkpointer())
+    # Phase 3: start the recurring reply-scan / follow-up job (draft-only).
+    try:
+        from modules import scheduler as sched_mod
+        sched_mod.register_followup_scan()
+    except Exception:  # pragma: no cover - never block startup on the job
+        pass
     yield
 
 
@@ -65,6 +71,16 @@ class SettingsUpdate(BaseModel):
     approved_send_mode: Optional[bool] = None
     daily_send_cap: Optional[int] = None
     fit_score_threshold: Optional[int] = None
+    followup_enabled: Optional[bool] = None
+    followup_after_business_days: Optional[int] = None
+    reply_detection_enabled: Optional[bool] = None
+
+
+class DecisionRequest(BaseModel):
+    action: str                       # approve | reject | edit
+    edits: Optional[dict] = None
+    reason: str = ""
+    by: str = "dashboard"
 
 
 def _run_config(thread_id: str) -> dict:
@@ -101,11 +117,39 @@ def start_run(req: RunRequest) -> dict:
 
 
 # --- approvals --------------------------------------------------------------
+def _followup_review_item(e: Email) -> dict:
+    """Approval-queue item for a follow-up draft (DB-backed, not a graph thread)."""
+    prof = e.professor
+    parent = e.parent_email_id
+    return {
+        "kind": "followup",
+        "email_id": e.id,
+        "interrupt": {
+            "email_id": e.id,
+            "subject": e.subject,
+            "body": e.body,
+            "attachments": e.attachments or [],
+            "quality_report": e.quality_gate_report,
+            "professor": {"name": prof.name if prof else None},
+            "professor_email": prof.email if prof else None,
+            "parent_email_id": parent,
+            "is_followup": True,
+        },
+    }
+
+
 @app.get("/approvals")
 def list_approvals() -> dict:
-    """List paused threads awaiting a human decision."""
-    return {"pending": [{"thread_id": tid, "interrupt": payload}
-                        for tid, payload in PENDING.items()]}
+    """List items awaiting a human decision: graph interrupts + follow-up drafts."""
+    items = [{"kind": "interrupt", "thread_id": tid, "interrupt": payload}
+             for tid, payload in PENDING.items()]
+    with dbsession.session_scope() as s:
+        followups = (s.query(Email)
+                     .filter(Email.is_followup == True,  # noqa: E712
+                             Email.status == "awaiting_review")
+                     .order_by(Email.id).all())
+        items.extend(_followup_review_item(e) for e in followups)
+    return {"pending": items}
 
 
 @app.post("/approvals/{thread_id}/resume")
@@ -124,6 +168,112 @@ def resume(thread_id: str, req: ResumeRequest) -> dict:
     return {"thread_id": thread_id, "status": "completed"}
 
 
+# --- follow-up email decisions (DB-backed, reuse the approval queue) ---------
+@app.post("/emails/{email_id}/decision")
+def decide_email(email_id: int, req: DecisionRequest) -> dict:
+    """Approve / edit / reject a follow-up draft. Mirrors the graph approval node.
+
+    On approve AND approved_send_mode, schedules the send via the same gated path
+    (scheduler.schedule_send requires status=='approved'); otherwise it stays an
+    approved draft. No new send path is introduced.
+    """
+    from modules import quality_gate, ingest, scheduler as sched_mod, tracker
+    from agent import repo
+    with dbsession.session_scope() as s:
+        email = s.get(Email, email_id)
+        if email is None:
+            raise HTTPException(404, "unknown email")
+        if email.status != "awaiting_review":
+            raise HTTPException(409, f"email status is {email.status!r}, not awaiting_review")
+
+        if req.action == "approve":
+            tracker.transition(s, email, "approved", {"by": req.by})
+            repo.record_approval(s, email, "", "approved", decided_by=req.by, reason=req.reason)
+            scheduled = None
+            if config_loader.config().get("approved_send_mode"):
+                try:
+                    send_utc = sched_mod.schedule_send(s, email)
+                    scheduled = send_utc.isoformat()
+                except Exception as exc:
+                    return {"email_id": email_id, "status": "approved",
+                            "scheduled": None, "schedule_error": str(exc)}
+            return {"email_id": email_id, "status": "approved", "scheduled": scheduled}
+
+        if req.action == "edit":
+            edits = req.edits or {}
+            if "subject" in edits:
+                email.subject = edits["subject"]
+            if "body" in edits:
+                email.body = edits["body"]
+            fcfg = config_loader.config().get("followup", {})
+            report = quality_gate.run(
+                email.body or "", email.subject or "",
+                email.professor or Professor(name=""), [], ingest.asset_paths(s),
+                word_bounds=(fcfg.get("word_min", 40), fcfg.get("word_max", 90)),
+                mode="followup")
+            email.quality_gate_passed = report["passed"]
+            email.quality_gate_report = report
+            repo.record_approval(s, email, "", "edited", decided_by=req.by,
+                                 edits=edits, reason=req.reason)
+            return {"email_id": email_id, "status": "edited",
+                    "quality_gate_passed": report["passed"]}
+
+        # reject
+        tracker.transition(s, email, "cancelled", {"by": req.by, "reason": req.reason})
+        repo.record_approval(s, email, "", "rejected", decided_by=req.by, reason=req.reason)
+        return {"email_id": email_id, "status": "rejected"}
+
+
+@app.post("/emails/{email_id}/reply")
+def mark_email_replied(email_id: int) -> dict:
+    """Manually mark a sent email as having received a reply (Gmail-optional path)."""
+    from modules import followups
+    with dbsession.session_scope() as s:
+        email = s.get(Email, email_id)
+        if email is None:
+            raise HTTPException(404, "unknown email")
+        followups.mark_replied(s, email, by="manual")
+    return {"email_id": email_id, "reply_received": True}
+
+
+# --- follow-ups -------------------------------------------------------------
+@app.post("/followups/scan")
+def followups_scan() -> dict:
+    """Run reply detection + due follow-up generation now. Returns counts."""
+    from modules import followups
+    with dbsession.session_scope() as s:
+        return followups.run_scan(s)
+
+
+@app.get("/followups")
+def list_followups() -> dict:
+    """All follow-up emails + the first-contact emails currently due for one."""
+    from modules import followups
+    with dbsession.session_scope() as s:
+        fus = (s.query(Email).filter(Email.is_followup == True)  # noqa: E712
+               .order_by(Email.created_at.desc()).all())
+        due = followups.due_followups(s)
+        return {
+            "followups": [{
+                "id": e.id, "subject": e.subject, "status": e.status,
+                "parent_email_id": e.parent_email_id,
+                "professor": e.professor.name if e.professor else None,
+                "quality_gate_passed": e.quality_gate_passed,
+            } for e in fus],
+            "due": [{"id": e.id, "subject": e.subject,
+                     "professor": e.professor.name if e.professor else None,
+                     "followup_due_date": e.followup_due_date.isoformat() if e.followup_due_date else None}
+                    for e in due],
+        }
+
+
+@app.get("/analytics")
+def analytics() -> dict:
+    from modules import analytics as analytics_mod
+    with dbsession.session_scope() as s:
+        return analytics_mod.compute_metrics(s)
+
+
 # --- read models for the dashboard ------------------------------------------
 def _email_row(e: Email) -> dict:
     return {
@@ -136,6 +286,10 @@ def _email_row(e: Email) -> dict:
         "scheduled_send_at_utc": e.scheduled_send_at_utc.isoformat() if e.scheduled_send_at_utc else None,
         "body": e.body, "attachments": e.attachments,
         "summary_pdf_path": e.summary_pdf_path,
+        "is_followup": e.is_followup,
+        "reply_received": e.reply_received,
+        "followup_status": e.followup_status,
+        "followup_due_date": e.followup_due_date.isoformat() if e.followup_due_date else None,
     }
 
 
@@ -180,6 +334,9 @@ def get_settings() -> dict:
     return {"approved_send_mode": cfg.get("approved_send_mode"),
             "daily_send_cap": cfg.get("daily_send_cap"),
             "fit_score_threshold": cfg.get("fit_score_threshold"),
+            "followup_enabled": cfg.get("followup", {}).get("enabled", True),
+            "followup_after_business_days": cfg.get("followup", {}).get("after_business_days", 10),
+            "reply_detection_enabled": cfg.get("reply_detection", {}).get("enabled", True),
             "gmail_authorised": gmail_client.is_authorised()}
 
 
@@ -192,7 +349,22 @@ def update_settings(req: SettingsUpdate) -> dict:
         cfg["daily_send_cap"] = req.daily_send_cap
     if req.fit_score_threshold is not None:
         cfg["fit_score_threshold"] = req.fit_score_threshold
+    if req.followup_enabled is not None:
+        cfg.setdefault("followup", {})["enabled"] = req.followup_enabled
+    if req.followup_after_business_days is not None:
+        cfg.setdefault("followup", {})["after_business_days"] = req.followup_after_business_days
+    if req.reply_detection_enabled is not None:
+        cfg.setdefault("reply_detection", {})["enabled"] = req.reply_detection_enabled
     config_loader.save_config(cfg)
+    # Reflect follow-up enable/disable + cadence change into the live job.
+    try:
+        from modules import scheduler as sched_mod
+        if cfg.get("followup", {}).get("enabled", True):
+            sched_mod.register_followup_scan()
+        else:
+            sched_mod.get_scheduler().remove_job("followup_scan")
+    except Exception:  # pragma: no cover - job may not exist
+        pass
     return get_settings()
 
 

@@ -11,13 +11,50 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator, Optional
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from db.models import Base
 
 _engine = None
 _SessionLocal = None
+
+# Columns added after the 001 baseline. `Base.metadata.create_all` creates new
+# tables but never ALTERs existing ones, so we add any missing columns here so a
+# pre-existing dev DB upgrades in place instead of being wiped. Mirrors
+# migrations/002_phase3.sql for Postgres/Supabase. Types are portable DDL.
+_PHASE3_COLUMNS = {
+    "emails": {
+        "reply_received_at": "TIMESTAMP",
+        "gmail_thread_id": "VARCHAR(128)",
+        "is_followup": "BOOLEAN DEFAULT 0",
+        "parent_email_id": "INTEGER",
+    },
+    "followups": {
+        "followup_email_id": "INTEGER",
+        "created_at": "TIMESTAMP",
+    },
+}
+
+
+def _ensure_phase3_columns(engine) -> None:
+    """Idempotently add Phase-3 columns to pre-existing tables."""
+    insp = inspect(engine)
+    existing_tables = set(insp.get_table_names())
+    is_pg = engine.url.get_backend_name().startswith("postgresql")
+    with engine.begin() as conn:
+        for table, columns in _PHASE3_COLUMNS.items():
+            if table not in existing_tables:
+                continue  # create_all will have built it fresh with all columns
+            present = {c["name"] for c in insp.get_columns(table)}
+            for name, ddl in columns.items():
+                if name in present:
+                    continue
+                # SQLite uses 0/1 for booleans; Postgres wants a real boolean default.
+                col_ddl = ddl
+                if is_pg:
+                    col_ddl = col_ddl.replace("BOOLEAN DEFAULT 0", "BOOLEAN DEFAULT FALSE")
+                conn.execute(text(f'ALTER TABLE {table} ADD COLUMN {name} {col_ddl}'))
 
 
 def resolve_url(db_path: Optional[str] = None) -> str:
@@ -51,6 +88,7 @@ def init_engine(db_path: Optional[str] = None) -> None:
     _engine = create_engine(url, connect_args=connect_args, future=True,
                             pool_pre_ping=not url.startswith("sqlite"))
     Base.metadata.create_all(_engine)
+    _ensure_phase3_columns(_engine)
     _SessionLocal = sessionmaker(bind=_engine, expire_on_commit=False, class_=Session)
 
 

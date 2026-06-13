@@ -166,6 +166,96 @@ def generate_email(session: Session, opp: Opportunity,
     return email
 
 
+def _followup_prompt(original: Email, prof, profile) -> str:
+    tmpl = config_loader.email_templates().get("followup", {})
+    cfg = config_loader.config().get("followup", {})
+    name = prof.name if prof else (original.opportunity.professor_name if original.opportunity else "")
+    paper = ""
+    if prof and prof.recent_papers:
+        paper = prof.recent_papers[0]["title"]
+    structure = "\n".join(f"{i+1}. {s}" for i, s in enumerate(tmpl.get("structure", [])))
+    return (
+        f"Write a brief, polite follow-up to a previous PhD outreach email from "
+        f"{profile['name']} to Professor {name}. The original email has had no reply.\n\n"
+        f"Original subject: {original.subject!r}\n"
+        f"A verified paper you may reference by exact title: {paper!r}\n\n"
+        f"Required structure:\n{structure}\n\n"
+        f"Constraints: body {cfg.get('word_min', 40)}-{cfg.get('word_max', 90)} words; "
+        f"warm but not pushy; reference the earlier email; restate the interest in one line; "
+        f"do NOT introduce any new claims about {profile['name']}; do NOT re-attach documents.\n"
+        'Return JSON: {"subject": "...", "body": "..."}.'
+    )
+
+
+def _fallback_followup(original: Email, prof, profile) -> dict:
+    """Deterministic follow-up when no LLM key is set."""
+    name = prof.name if prof else (original.opportunity.professor_name if original.opportunity
+                                   else "Professor")
+    surname = name.split()[-1] if name else ""
+    subject = original.subject or "my PhD application"
+    if not subject.lower().startswith("re:"):
+        subject = f"Re: {subject}"
+    body = (
+        f"Dear Professor {surname},\n\n"
+        f"I wanted to gently follow up on my earlier email about a PhD position in your group. "
+        f"I remain very interested in the possibility of working with you and would be glad to "
+        f"share any further materials that would help. I appreciate your time and understand how "
+        f"busy you are.\n\n"
+        f"Kind regards,\n{profile['name']}"
+    )
+    return {"subject": subject[:80], "body": body}
+
+
+def generate_followup(session: Session, original: Email) -> Email:
+    """Draft a single gated follow-up for an unanswered first-contact email."""
+    profile = config_loader.profile()
+    prof = original.professor
+    cfg = config_loader.config().get("followup", {})
+
+    if llm.available():
+        try:
+            draft = llm.complete_json(_followup_prompt(original, prof, profile))
+        except Exception:
+            draft = _fallback_followup(original, prof, profile)
+    else:
+        draft = _fallback_followup(original, prof, profile)
+
+    subject = draft.get("subject") or ""
+    if not subject.lower().startswith("re:"):
+        subject = f"Re: {subject}".strip()
+
+    report = quality_gate.run(
+        draft.get("body", ""), subject,
+        prof or Professor(name=(original.opportunity.professor_name if original.opportunity else "")),
+        [], {},
+        word_bounds=(cfg.get("word_min", 40), cfg.get("word_max", 90)),
+        mode="followup",
+    )
+
+    email = Email(
+        opportunity_id=original.opportunity_id,
+        professor_id=original.professor_id,
+        subject=subject,
+        body=draft.get("body"),
+        attachments=[],
+        quality_gate_passed=report["passed"],
+        quality_gate_report=report,
+        status="draft_created",
+        is_followup=True,
+        parent_email_id=original.id,
+        gmail_thread_id=original.gmail_thread_id,
+    )
+    session.add(email)
+    session.flush()
+    tracker.log_event(session, email.id, "followup_drafted",
+                      {"parent_email_id": original.id, "gate_passed": report["passed"]})
+    if report["passed"]:
+        tracker.transition(session, email, "awaiting_review",
+                           {"reason": "followup quality gate passed"})
+    session.flush()
+    return email
+
+
 def regenerate(session: Session, email: Email) -> Email:
     """Re-draft an existing email (resets to draft_created then re-runs)."""
     opp = email.opportunity

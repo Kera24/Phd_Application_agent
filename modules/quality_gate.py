@@ -53,10 +53,11 @@ def check_gap_and_angle(body: str) -> tuple[bool, bool]:
     return has_gap, has_angle
 
 
-def check_word_count(body: str) -> tuple[bool, int]:
-    qg = config_loader.config().get("quality_gate", {})
-    lo = qg.get("body_word_min", 120)
-    hi = qg.get("body_word_max", 180)
+def check_word_count(body: str, bounds: Optional[tuple[int, int]] = None) -> tuple[bool, int]:
+    if bounds is None:
+        qg = config_loader.config().get("quality_gate", {})
+        bounds = (qg.get("body_word_min", 120), qg.get("body_word_max", 180))
+    lo, hi = bounds
     n = _words(body)
     return (lo <= n <= hi, n)
 
@@ -116,27 +117,39 @@ def check_claims_traceable(body: str) -> tuple[bool, list[str]]:
 
 
 def run(body: str, subject: str, prof: Professor,
-        attachments: list[str], resolved_attachments: dict[str, str]) -> dict[str, Any]:
-    """Run all checks; return a report. `passed` is the AND of all checks."""
+        attachments: list[str], resolved_attachments: dict[str, str],
+        *, word_bounds: Optional[tuple[int, int]] = None,
+        mode: str = "standard") -> dict[str, Any]:
+    """Run all checks; return a report. `passed` is the AND of all checks.
+
+    `word_bounds` overrides the default body length range. `mode='followup'`
+    runs the lighter gate for the short follow-up nudge: it keeps name / length /
+    subject / banned-phrase / claim-traceability checks but drops the research
+    checks (gap / angle / verified-citation) and attachment check, which apply to
+    the research-led first-contact email, not a reminder.
+    """
     name_ok, name_msg = check_professor_name(body, prof)
-    cite_ok, cited = check_citation(body, prof)
-    has_gap, has_angle = check_gap_and_angle(body)
-    wc_ok, wc = check_word_count(body)
+    wc_ok, wc = check_word_count(body, word_bounds)
     subj_ok, subj_words = check_subject(subject)
     banned_ok, banned_hits = check_banned_phrases(body, subject)
-    att_ok, att_missing = check_attachments(attachments, resolved_attachments)
     claims_ok, bad_claims = check_claims_traceable(body)
 
     checks = {
         "professor_name": {"passed": name_ok, "detail": name_msg},
-        "verified_citation": {"passed": cite_ok, "detail": {"matched": cited}},
-        "gap_statement": {"passed": has_gap, "detail": "gap marker present" if has_gap else "no gap marker"},
-        "angle_statement": {"passed": has_angle, "detail": "angle marker present" if has_angle else "no angle marker"},
         "word_count": {"passed": wc_ok, "detail": {"words": wc}},
         "subject_length": {"passed": subj_ok, "detail": {"words": subj_words}},
         "no_banned_phrases": {"passed": banned_ok, "detail": {"hits": banned_hits}},
-        "attachments_resolved": {"passed": att_ok, "detail": {"missing": att_missing}},
         "claims_traceable": {"passed": claims_ok, "detail": {"unsupported": bad_claims}},
     }
+    if mode != "followup":
+        cite_ok, cited = check_citation(body, prof)
+        has_gap, has_angle = check_gap_and_angle(body)
+        att_ok, att_missing = check_attachments(attachments, resolved_attachments)
+        checks.update({
+            "verified_citation": {"passed": cite_ok, "detail": {"matched": cited}},
+            "gap_statement": {"passed": has_gap, "detail": "gap marker present" if has_gap else "no gap marker"},
+            "angle_statement": {"passed": has_angle, "detail": "angle marker present" if has_angle else "no angle marker"},
+            "attachments_resolved": {"passed": att_ok, "detail": {"missing": att_missing}},
+        })
     passed = all(c["passed"] for c in checks.values())
     return {"passed": passed, "checks": checks}

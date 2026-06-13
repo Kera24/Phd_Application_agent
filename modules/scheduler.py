@@ -101,6 +101,28 @@ def get_scheduler():
     return _scheduler
 
 
+def register_followup_scan() -> bool:
+    """Register the recurring Phase-3 reply-scan / follow-up job (idempotent).
+
+    Returns True if the job is active, False if follow-ups are disabled in config.
+    """
+    cfg = config_loader.config().get("followup", {})
+    if not cfg.get("enabled", True):
+        return False
+    scheduler = get_scheduler()
+    interval = int(cfg.get("scan_interval_minutes", 60))
+    scheduler.add_job(
+        "modules.followups:scan_job",
+        trigger="interval",
+        minutes=interval,
+        id="followup_scan",
+        replace_existing=True,
+        coalesce=True,
+        max_instances=1,
+    )
+    return True
+
+
 def schedule_send(session: Session, email: Email,
                   *, rng: Optional[random.Random] = None) -> dt.datetime:
     """Queue an approved email for its next valid window, honouring the daily cap."""
