@@ -48,6 +48,18 @@ def api_put(path: str, json=None):
         return None
 
 
+def api_post_file(path: str, kind: str, uploaded_file):
+    """POST a multipart file upload (Streamlit UploadedFile) to the backend."""
+    try:
+        files = {"file": (uploaded_file.name, uploaded_file.getvalue())}
+        r = requests.post(f"{API}{path}", data={"kind": kind}, files=files, timeout=120)
+        r.raise_for_status()
+        return r.json()
+    except Exception as exc:
+        st.error(f"Upload to {path} failed: {exc}")
+        return None
+
+
 def _backend_ok() -> bool:
     return api_get("/healthz") is not None
 
@@ -349,6 +361,42 @@ def page_settings():
         st.rerun()
 
 
+def page_documents():
+    st.header("📎 Documents")
+    st.caption("Upload the documents your outreach emails attach (CV, transcript, "
+               "base research summary, statement of purpose). One file per kind; "
+               "re-uploading replaces the previous one. Text is extracted for the "
+               "quality gate; image-only/scanned PDFs will warn.")
+    KIND_LABELS = {
+        "cv": "CV / résumé",
+        "transcript": "Transcript",
+        "summary": "Base research summary",
+        "sop": "Statement of purpose (SOP)",
+    }
+    existing = {a["kind"]: a for a in (api_get("/assets") or {}).get("assets", [])}
+    for kind, label in KIND_LABELS.items():
+        st.subheader(label)
+        cur = existing.get(kind)
+        if cur:
+            line = f"Current: **{cur['file_name']}** ({cur['char_count']} chars extracted)"
+            st.success(line)
+            if cur.get("warning"):
+                st.warning(cur["warning"])
+        else:
+            st.caption("Not uploaded yet.")
+        up = st.file_uploader(f"Upload {label}", type=["pdf", "txt", "doc", "docx"],
+                              key=f"upl_{kind}")
+        if up is not None and st.button(f"Save {label}", key=f"save_{kind}"):
+            res = api_post_file("/assets", kind, up)
+            if res:
+                msg = f"Uploaded {res['file_name']} ({res['char_count']} chars)."
+                if res.get("warning"):
+                    st.warning(res["warning"])
+                st.success(msg)
+                st.rerun()
+        st.divider()
+
+
 # --------------------------------------------------------------------------- #
 # Router
 # --------------------------------------------------------------------------- #
@@ -358,6 +406,7 @@ PAGES = {
     "Add Opportunity": page_add,
     "Prospecting": page_prospecting,
     "Professors": page_professors,
+    "Documents": page_documents,
     "Approvals": page_approvals,
     "Analytics": page_analytics,
     "Settings": page_settings,

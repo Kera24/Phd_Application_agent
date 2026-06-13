@@ -73,7 +73,15 @@ def research_professor(
 
     themes, gap, angle, relevant = [], None, None, []
     if papers and llm.available():
-        relevant, themes, gap, angle = _analyse_with_verification(name, papers, profile)
+        try:
+            relevant, themes, gap, angle = _analyse_with_verification(name, papers, profile)
+        except CitationVerificationError:
+            # Deliberate quality failure — let the node route it to needs_review.
+            raise
+        except Exception:
+            # LLM present but failing at the API level (bad key / no credits):
+            # degrade to the keyless path (no themes/gap/angle) instead of 500ing.
+            themes, gap, angle, relevant = [], None, None, []
 
     prof = _upsert(session, name, email, affiliation, profile_url, scholar_url)
     prof.recent_papers = papers

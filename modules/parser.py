@@ -85,18 +85,23 @@ def _heuristic_parse(raw_text: str) -> dict[str, Any]:
 
 
 def parse_text(raw_text: str) -> dict[str, Any]:
-    """Return a dict of extracted fields. Uses Claude when available."""
+    """Return a dict of extracted fields. Uses Claude when available, and falls
+    back to the deterministic heuristic parser if the LLM call fails (e.g. an
+    invalid key or an account with no credits) rather than erroring out."""
     if llm.available():
-        cfg = config_loader.config().get("llm", {})
-        data = llm.complete_json(
-            _parse_prompt(raw_text),
-            system=PARSE_SYSTEM,
-            model=cfg.get("parser_model"),
-        )
-        # Ensure all schema fields are present.
-        for f in SCHEMA_FIELDS:
-            data.setdefault(f, None)
-        return data
+        try:
+            cfg = config_loader.config().get("llm", {})
+            data = llm.complete_json(
+                _parse_prompt(raw_text),
+                system=PARSE_SYSTEM,
+                model=cfg.get("parser_model"),
+            )
+            # Ensure all schema fields are present.
+            for f in SCHEMA_FIELDS:
+                data.setdefault(f, None)
+            return data
+        except Exception:
+            return _heuristic_parse(raw_text)
     return _heuristic_parse(raw_text)
 
 

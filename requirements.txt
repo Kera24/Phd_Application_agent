@@ -10,14 +10,16 @@ anthropic>=0.40
 # Backend + dashboard
 fastapi>=0.115
 uvicorn>=0.30
+python-multipart>=0.0.9   # FastAPI file/form uploads (candidate documents)
 streamlit>=1.36
 requests>=2.31
 
 # Database (SQLite dev fallback; Supabase/Postgres via DATABASE_URL)
 SQLAlchemy>=2.0
 psycopg[binary]>=3.2
-# Optional: Postgres-backed LangGraph checkpoints (falls back to SQLite if absent)
-# langgraph-checkpoint-postgres>=2.0
+# Postgres-backed LangGraph checkpoints so interrupt/approval state persists in
+# Supabase (else it falls back to ephemeral SQLite, wiped on every redeploy).
+langgraph-checkpoint-postgres>=2.0
 
 # Documents / PDF
 pypdf>=4.0

@@ -16,12 +16,12 @@ from typing import Any, Optional
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from langgraph.types import Command
 from pydantic import BaseModel
 
 from db import session as dbsession
-from db.models import Email, Opportunity, Professor
+from db.models import Asset, Email, Opportunity, Professor
 from modules import config_loader, gmail_client
 
 # In-memory registry of paused threads: thread_id -> last interrupt payload.
@@ -325,6 +325,49 @@ def professors() -> dict:
             "themes": p.research_themes, "gap": p.identified_gap,
             "angle": p.proposed_angle, "papers": p.recent_papers,
         } for p in profs]}
+
+
+# --- candidate documents (CV / transcript / base summary / SOP) -------------
+@app.get("/assets")
+def list_assets() -> dict:
+    """Currently uploaded candidate documents, one per kind."""
+    with dbsession.session_scope() as s:
+        assets = s.query(Asset).order_by(Asset.kind).all()
+        return {"assets": [{
+            "kind": a.kind, "file_name": Path(a.file_path).name,
+            "char_count": a.char_count, "warning": a.warning,
+            "created_at": a.created_at.isoformat() if a.created_at else None,
+        } for a in assets]}
+
+
+@app.post("/assets")
+def upload_asset(kind: str = Form(...), file: UploadFile = File(...)) -> dict:
+    """Upload/replace a candidate document. Extracts text and stores an Asset.
+
+    `kind` must be one of ingest.KINDS (cv|transcript|summary|sop). The file is
+    streamed to a temp path, then handed to ingest.save_upload (which copies it
+    into data/uploads, extracts text, and replaces any prior asset of the kind).
+    """
+    import os
+    import tempfile
+    from modules import ingest
+
+    if kind not in ingest.KINDS:
+        raise HTTPException(400, f"kind must be one of {ingest.KINDS}")
+    suffix = Path(file.filename or "").suffix
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+        tmp.write(file.file.read())
+        tmp_path = tmp.name
+    try:
+        with dbsession.session_scope() as s:
+            asset = ingest.save_upload(s, kind, tmp_path, original_name=file.filename)
+            return {"kind": asset.kind, "file_name": Path(asset.file_path).name,
+                    "char_count": asset.char_count, "warning": asset.warning}
+    finally:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
 
 
 # --- settings ---------------------------------------------------------------
