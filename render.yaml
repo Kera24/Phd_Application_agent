@@ -1,0 +1,29 @@
+# Render Blueprint — deploys the ScholarReach FastAPI backend as a Docker web service.
+#
+# The Streamlit dashboard is NOT deployed here; it lives on Streamlit Community
+# Cloud and points at this service's public URL via its own SCHOLARREACH_API secret.
+#
+# After importing this blueprint in Render, set the secret env vars below in the
+# Render dashboard (they are marked sync:false so they are NOT stored in git).
+services:
+  - type: web
+    name: scholarreach-backend
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    healthCheckPath: /healthz
+    envVars:
+      # REQUIRED: Supabase connection string.
+      # Use the Supabase **connection pooler** URI (Session mode, port 5432) for
+      # IPv4 compatibility, e.g.:
+      #   postgresql://postgres.<ref>:<password>@aws-0-<region>.pooler.supabase.com:5432/postgres
+      # The app normalises postgres:// and postgresql:// to the psycopg driver automatically.
+      - key: DATABASE_URL
+        sync: false
+      # OPTIONAL: leave blank to use deterministic fallbacks (heuristic parser,
+      # template-fill drafts, quality-gate LLM judge skipped).
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      # OPTIONAL: enables professor / opportunity discovery via Tavily.
+      - key: TAVILY_API_KEY
+        sync: false
