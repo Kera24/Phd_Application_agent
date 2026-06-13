@@ -69,6 +69,14 @@ def resolve_url(db_path: Optional[str] = None) -> str:
             url = url.replace("postgres://", "postgresql+psycopg://", 1)
         elif url.startswith("postgresql://"):  # no driver specified -> use psycopg
             url = url.replace("postgresql://", "postgresql+psycopg://", 1)
+        elif not url.startswith(("postgresql+", "sqlite")):
+            scheme = url.split("://", 1)[0] if "://" in url else url
+            raise RuntimeError(
+                f"DATABASE_URL has an unsupported scheme {scheme!r}. Expected a Postgres "
+                "connection string starting with 'postgresql://' (e.g. the Supabase "
+                "Database 'Connection string > URI', Session pooler, port 5432) — not the "
+                "Supabase Project URL ('https://<ref>.supabase.co', which is the REST API)."
+            )
         return url
     if db_path is None:
         db_path = "data/scholarreach.db"
