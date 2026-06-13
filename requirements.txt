@@ -1,0 +1,38 @@
+# ScholarReach — pinned dependencies (Python 3.11+)
+
+# Orchestration (LangGraph + LangChain tools + Claude)
+langgraph>=1.0
+langgraph-checkpoint-sqlite>=2.0
+langchain-core>=1.0
+langchain-anthropic>=1.0
+anthropic>=0.40
+
+# Backend + dashboard
+fastapi>=0.115
+uvicorn>=0.30
+streamlit>=1.36
+requests>=2.31
+
+# Database (SQLite dev fallback; Supabase/Postgres via DATABASE_URL)
+SQLAlchemy>=2.0
+psycopg[binary]>=3.2
+# Optional: Postgres-backed LangGraph checkpoints (falls back to SQLite if absent)
+# langgraph-checkpoint-postgres>=2.0
+
+# Documents / PDF
+pypdf>=4.0
+weasyprint>=62.0
+
+# Search / scheduling / misc
+tavily-python>=0.5
+APScheduler>=3.10
+google-auth>=2.30
+google-auth-oauthlib>=1.2
+google-api-python-client>=2.130
+PyYAML>=6.0
+tzdata>=2024.1
+rapidfuzz>=3.9
+python-dateutil>=2.9
+
+# Tests
+pytest>=8.0

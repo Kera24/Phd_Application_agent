@@ -1,0 +1,72 @@
+# Candidate profile — GROUND TRUTH for all personalisation.
+# The agent must never contradict or embellish anything in this file.
+# Edit freely; no code change required.
+
+name: Raj Kumar Sah
+location: Sydney, Australia
+applicant_status: International applicant
+contact:
+  email: ""          # fill in the email address Raj wants on the summary PDF
+  phone: ""
+  linkedin: ""
+  github: ""
+  scholar: ""
+
+education:
+  - degree: Master of Data Science
+    institution: Charles Darwin University
+    completed: "2025-07"
+    notes: Global Excellence Award Scholarship; minor in Computational Biology
+
+research_projects:
+  - id: vpr_contrastive
+    title: Self-supervised contrastive learning for Visual Place Recognition
+    detail: >-
+      SimCLR / MoCo on the Nordland dataset for visual place recognition.
+    domain: [computer_vision, representation_learning, self_supervised]
+    # IMPORTANT: this project is VPR, NOT medical imaging. Never conflate the two.
+    match_keywords: [contrastive, self-supervised, representation, place recognition, nordland, simclr, moco, vpr]
+
+  - id: medical_imaging_vindr
+    title: Breast cancer detection on VinDr-Mammo
+    detail: >-
+      ViT and ResNet50 on VinDr-Mammo mammography, AUC 0.91, with explainability analysis.
+    domain: [medical_imaging, computer_vision, explainable_ai]
+    match_keywords: [medical imaging, mammography, breast cancer, vindr, vit, resnet, explainability, healthcare]
+
+  - id: sae_superposition
+    title: Self-supervised vision encoder mechanistic analysis
+    detail: >-
+      Representation superposition via sparse-autoencoder (SAE) mechanistic analysis;
+      arXiv preprint in progress.
+    domain: [mechanistic_interpretability, self_supervised, computer_vision]
+    match_keywords: [mechanistic, interpretability, sparse autoencoder, superposition, sae, vision encoder]
+
+  - id: rag_llm
+    title: Applied LLM / RAG systems
+    detail: >-
+      AI Engineering Internship at NSWIT Support — applied LLM/RAG systems;
+      full-stack development across multiple production SaaS products.
+    domain: [nlp, llm, rag, software_engineering]
+    match_keywords: [llm, rag, retrieval, language model, nlp, full-stack]
+
+industry:
+  - role: AI Engineering Intern
+    org: NSWIT Support
+    detail: Applied LLM/RAG systems; full-stack development on production SaaS.
+
+target_fields:
+  - Computer Vision
+  - Medical Imaging
+  - Reinforcement Learning
+  - Diffusion Models
+  - Vision-Language Models
+  - Explainable AI
+  - ML for Healthcare
+  - Geometric Deep Learning
+
+target_regions:
+  - Europe   # incl. DAAD / Marie Skłodowska-Curie eligible programs
+  - UK
+  - USA
+  - Australia

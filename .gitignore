@@ -1,0 +1,16 @@
+# Sensitive + local data — never commit (Non-Negotiable Rule 7)
+data/
+*.db
+*.sqlite
+gmail_token.json
+gmail_credentials.json
+
+# Local tooling config
+.claude/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+*.egg-info/

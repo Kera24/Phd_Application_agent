@@ -1,0 +1,106 @@
+# Runtime configuration. Edited via the Settings page or directly.
+
+# --- Safety gates (Non-Negotiable Rules) -----------------------------------
+approved_send_mode: false       # MUST be true AND per-email approval before any send
+daily_send_cap: 10              # hard cap on scheduled sends per day
+fully_funded_only: true         # only `funded` opportunities reach email stage
+
+# --- Discovery targeting ----------------------------------------------------
+target_countries:
+  - Germany
+  - Switzerland
+  - Netherlands
+  - Sweden
+  - United Kingdom
+  - United States
+  - Australia
+
+# Countries where standard PhD positions are funded by default (salaried /
+# full-stipend systems). Used to gate speculative outreach.
+default_funded_countries:
+  - Germany
+  - Switzerland
+  - Netherlands
+  - Sweden
+  - Norway
+  - Denmark
+  - Finland
+  - United Kingdom
+  - United States
+  - Australia
+
+target_fields:
+  - Computer Vision
+  - Medical Imaging
+  - Reinforcement Learning
+  - Diffusion Models
+  - Vision-Language Models
+  - Explainable AI
+  - ML for Healthcare
+  - Geometric Deep Learning
+
+advertised_search_keywords:
+  - "fully funded PhD position"
+  - "doctoral researcher"
+  - "PhD studentship"
+  - "research assistant PhD track"
+
+advertised_job_boards:
+  - jobs.ac.uk
+  - academicpositions.eu
+  - euraxess.ec.europa.eu
+  - findaphd.com
+  - timeshighereducation.com
+
+# Known funding scheme signals used as funding-likelihood evidence.
+funding_scheme_signals: [ERC, DFG, EPSRC, SNSF, ARC, DAAD, MSCA, NWO, VR, Horizon]
+
+# --- Scheduling -------------------------------------------------------------
+send_window:
+  days: [Mon, Tue, Wed, Thu]    # never Fri/Sat/Sun
+  start_hour: 8                 # professor-local
+  end_hour: 9
+
+# --- Models -----------------------------------------------------------------
+llm:
+  model: claude-opus-4-8
+  parser_model: claude-sonnet-4-6
+  max_tokens: 2000
+  temperature: 0.2
+
+# --- Fit scoring ------------------------------------------------------------
+fit_score_threshold: 50          # below this -> parked in dashboard, no email
+highlight_threshold: 70
+posting_recheck_days: 7          # re-check posting URL if older than this
+
+# --- Quality gate -----------------------------------------------------------
+quality_gate:
+  body_word_min: 120
+  body_word_max: 180
+  subject_max_words: 9
+  banned_phrases:
+    - "I am writing to express"
+    - "esteemed"
+    - "I came across"
+    - "I hope this email finds you well"
+    - "to whom it may concern"
+
+# --- Paths ------------------------------------------------------------------
+paths:
+  database: data/scholarreach.db
+  # LangGraph checkpointer follows DATABASE_URL: Postgres -> Postgres saver,
+  # else SQLite at this path.
+  checkpoint_sqlite_path: data/checkpoints.sqlite
+  cache: data/cache
+  pdfs: data/pdfs
+  uploads: data/uploads
+  scheduler_jobstore: data/scheduler.sqlite
+  gmail_token: data/gmail_token.json
+  gmail_credentials: data/gmail_credentials.json
+
+# --- HTTP politeness ---------------------------------------------------------
+http:
+  user_agent: "ScholarReach/1.0 (PhD outreach assistant; respectful crawler)"
+  rate_limit_seconds: 1.0
+  respect_robots_txt: true
+  cache_ttl_hours: 168

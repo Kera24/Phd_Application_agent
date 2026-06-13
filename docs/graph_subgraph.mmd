@@ -1,0 +1,45 @@
+---
+config:
+  flowchart:
+    curve: linear
+---
+graph TD;
+	__start__([<p>__start__</p>]):::first
+	parse(parse)
+	research(research)
+	gap(gap)
+	score(score)
+	summary(summary)
+	email_writer(email_writer)
+	bump_retry(bump_retry)
+	gmail_draft(gmail_draft)
+	archived(archived)
+	needs_review(needs_review)
+	parked(parked)
+	quality_needs_review(quality_needs_review)
+	quality_gate_router(quality_gate_router)
+	__end__([<p>__end__</p>]):::last
+	__start__ --> parse;
+	bump_retry --> email_writer;
+	email_writer --> quality_gate_router;
+	gap --> score;
+	parse -.-> archived;
+	parse -.-> needs_review;
+	parse -.-> research;
+	quality_gate_router -. &nbsp;retry&nbsp; .-> bump_retry;
+	quality_gate_router -.-> gmail_draft;
+	quality_gate_router -. &nbsp;needs_review&nbsp; .-> quality_needs_review;
+	research -.-> gap;
+	research -.-> needs_review;
+	score -.-> parked;
+	score -.-> summary;
+	summary -.-> email_writer;
+	summary -.-> needs_review;
+	archived --> __end__;
+	gmail_draft --> __end__;
+	needs_review --> __end__;
+	parked --> __end__;
+	quality_needs_review --> __end__;
+	classDef default fill:#f2f0ff,line-height:1.2
+	classDef first fill-opacity:0
+	classDef last fill:#bfb6fc
