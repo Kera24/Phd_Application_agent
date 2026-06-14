@@ -1,6 +1,7 @@
 """Load and persist the three YAML configs. Single source of truth for paths."""
 from __future__ import annotations
 
+import copy
 import functools
 from pathlib import Path
 from typing import Any
@@ -18,8 +19,50 @@ def _load(name: str) -> dict[str, Any]:
 
 
 @functools.lru_cache(maxsize=1)
-def profile() -> dict[str, Any]:
+def _profile_base() -> dict[str, Any]:
     return _load("profile.yaml")
+
+
+def _deep_merge(base: dict, over: dict) -> dict:
+    """Recursively merge `over` into `base` (dicts merge, scalars/lists replace)."""
+    out = dict(base)
+    for k, v in (over or {}).items():
+        if isinstance(v, dict) and isinstance(out.get(k), dict):
+            out[k] = _deep_merge(out[k], v)
+        elif v not in (None, ""):
+            out[k] = v
+    return out
+
+
+def applicant_overrides() -> dict[str, Any]:
+    """The DB-stored applicant profile (empty if none / DB not ready)."""
+    try:
+        from db import session as dbsession
+        from db.models import ApplicantProfile
+        with dbsession.session_scope() as s:
+            row = s.get(ApplicantProfile, 1)
+            return dict(row.data) if row and row.data else {}
+    except Exception:
+        return {}  # engine not initialised yet, or table absent — fall back to YAML
+
+
+def profile() -> dict[str, Any]:
+    """Candidate profile = YAML base with the DB applicant record merged over it."""
+    return _deep_merge(copy.deepcopy(_profile_base()), applicant_overrides())
+
+
+def save_applicant(data: dict[str, Any]) -> dict[str, Any]:
+    """Persist the editable applicant profile (single DB row)."""
+    from db import session as dbsession
+    from db.models import ApplicantProfile
+    with dbsession.session_scope() as s:
+        row = s.get(ApplicantProfile, 1)
+        if row is None:
+            s.add(ApplicantProfile(id=1, data=data))
+        else:
+            row.data = data
+        s.flush()
+    return data
 
 
 def config() -> dict[str, Any]:

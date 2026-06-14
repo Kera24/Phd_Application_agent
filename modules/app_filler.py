@@ -20,6 +20,18 @@ from modules import config_loader, llm
 # Input types that are not user-fillable form fields.
 _SKIP_INPUT_TYPES = {"hidden", "submit", "button", "image", "reset"}
 
+def _addr(pr: dict, key: str) -> str:
+    return (pr.get("address") or {}).get(key, "") or ""
+
+
+def _score(pr: dict, key: str) -> str:
+    return str((pr.get("test_scores") or {}).get(key, "") or "")
+
+
+def _country_from_location(pr: dict) -> str:
+    return pr.get("location", "").split(",")[-1].strip() if pr.get("location") else ""
+
+
 # (label/name keyword(s)) -> function(profile) -> value. First match wins, so
 # order from most specific to least.
 _FIELD_HINTS: list[tuple[tuple[str, ...], Any]] = [
@@ -32,14 +44,29 @@ _FIELD_HINTS: list[tuple[tuple[str, ...], Any]] = [
     (("phone", "mobile", "telephone", "tel"), lambda pr: pr.get("contact", {}).get("phone", "")),
     (("linkedin",), lambda pr: pr.get("contact", {}).get("linkedin", "")),
     (("github",), lambda pr: pr.get("contact", {}).get("github", "")),
+    (("orcid",), lambda pr: pr.get("contact", {}).get("orcid", "")),
     (("scholar",), lambda pr: pr.get("contact", {}).get("scholar", "")),
-    (("nationality", "citizenship"),
-     lambda pr: (pr.get("location", "").split(",")[-1].strip() if pr.get("location") else "")),
-    (("country",),
-     lambda pr: (pr.get("location", "").split(",")[-1].strip() if pr.get("location") else "")),
-    (("city", "town"),
-     lambda pr: (pr.get("location", "").split(",")[0].strip() if pr.get("location") else "")),
-    (("location", "address"), lambda pr: pr.get("location", "")),
+    (("website", "homepage", "personal page", "web page"),
+     lambda pr: pr.get("contact", {}).get("website", "")),
+    (("date of birth", "dob", "birth date", "birthdate"), lambda pr: pr.get("date_of_birth", "")),
+    (("gender", "sex"), lambda pr: pr.get("gender", "")),
+    (("nationality", "citizenship"), lambda pr: pr.get("nationality", "") or _country_from_location(pr)),
+    (("passport",), lambda pr: pr.get("passport_number", "")),
+    (("postcode", "postal code", "zip"), lambda pr: _addr(pr, "postcode")),
+    (("street", "address line", "address1", "address"),
+     lambda pr: _addr(pr, "line1") or pr.get("location", "")),
+    (("state", "province"), lambda pr: _addr(pr, "state")),
+    (("country",), lambda pr: _addr(pr, "country") or pr.get("nationality", "") or _country_from_location(pr)),
+    (("city", "town"), lambda pr: _addr(pr, "city") or (pr.get("location", "").split(",")[0].strip() if pr.get("location") else "")),
+    (("location",), lambda pr: pr.get("location", "")),
+    (("cgpa", "gpa", "grade point", "grade average", "class of degree"),
+     lambda pr: str(pr.get("gpa", "") or "")),
+    (("ielts",), lambda pr: _score(pr, "ielts")),
+    (("toefl",), lambda pr: _score(pr, "toefl")),
+    (("duolingo",), lambda pr: _score(pr, "duolingo")),
+    (("gre",), lambda pr: _score(pr, "gre")),
+    (("gmat",), lambda pr: _score(pr, "gmat")),
+    (("languages", "language"), lambda pr: ", ".join(pr.get("languages", []) or [])),
 ]
 
 
@@ -108,6 +135,18 @@ def extract_form_fields(html: str) -> list[dict]:
 
 def _heuristic_value(label: str, profile: dict) -> str:
     low = (label or "").lower()
+    # Referee / recommender fields: map the first referee on record.
+    if any(k in low for k in ("referee", "reference", "recommender")):
+        refs = profile.get("referees") or []
+        if not refs:
+            return ""
+        r = refs[0]
+        if "email" in low:
+            return r.get("email", "")
+        if any(k in low for k in ("institution", "organisation", "organization",
+                                  "affiliation", "university", "company")):
+            return r.get("institution", "")
+        return r.get("name", "")
     for keywords, getter in _FIELD_HINTS:
         if any(k in low for k in keywords):
             val = getter(profile) or ""

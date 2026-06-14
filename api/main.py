@@ -436,6 +436,21 @@ def professors() -> dict:
         } for p in profs]}
 
 
+# --- applicant profile (student details for applications) -------------------
+@app.get("/profile")
+def get_profile() -> dict:
+    """Effective candidate profile (YAML base + DB applicant overrides merged)."""
+    return {"profile": config_loader.profile(),
+            "overrides": config_loader.applicant_overrides()}
+
+
+@app.put("/profile")
+def put_profile(data: dict) -> dict:
+    """Replace the editable applicant profile (the fields the Profile page manages)."""
+    saved = config_loader.save_applicant(data)
+    return {"saved": saved, "profile": config_loader.profile()}
+
+
 # --- candidate documents (CV / transcript / base summary / SOP) -------------
 @app.get("/assets")
 def list_assets() -> dict:

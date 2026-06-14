@@ -11,7 +11,9 @@ from sqlalchemy.orm import Session
 from db.models import Asset
 from modules import config_loader
 
-KINDS = ("cv", "transcript", "summary", "sop")
+KINDS = ("cv", "transcript", "summary", "sop",
+         "recommendation", "english_test", "degree_certificate",
+         "research_proposal", "writing_sample", "portfolio", "passport", "photo")
 MIN_CHARS = 500  # below this, the PDF is likely scanned -> warn
 
 
@@ -41,11 +43,15 @@ def save_upload(session: Session, kind: str, src_path: str | Path,
     dest = uploads / f"{kind}_{fname}"
     shutil.copyfile(src_path, dest)
 
-    text = extract_text(dest) if dest.suffix.lower() == ".pdf" else dest.read_text(
-        encoding="utf-8", errors="ignore"
-    )
+    suffix = dest.suffix.lower()
+    if suffix == ".pdf":
+        text = extract_text(dest)
+    elif suffix in (".txt", ".md"):
+        text = dest.read_text(encoding="utf-8", errors="ignore")
+    else:
+        text = ""  # binary docs (images, .docx) — keep the file, don't extract text
     warning = None
-    if dest.suffix.lower() == ".pdf" and len(text) < MIN_CHARS:
+    if suffix == ".pdf" and len(text) < MIN_CHARS:
         warning = (
             f"Extracted only {len(text)} characters (<{MIN_CHARS}). "
             "The PDF may be scanned/image-based; OCR may be required."

@@ -267,6 +267,23 @@ class ScheduledEmail(Base):
     created_at: Mapped[dt.datetime] = mapped_column(DateTime, default=_utcnow)
 
 
+class ApplicantProfile(Base):
+    """Single-row store of the student's application details.
+
+    Merged OVER config/profile.yaml by config_loader.profile(), so it persists
+    across redeploys (Render's disk is ephemeral) while the YAML stays the base.
+    `data` holds the editable fields (contact, address, test scores, referees, …);
+    research_projects etc. remain in the YAML base.
+    """
+
+    __tablename__ = "applicant_profile"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    data: Mapped[Optional[dict]] = mapped_column(JSON)
+    updated_at: Mapped[dt.datetime] = mapped_column(
+        DateTime, default=_utcnow, onupdate=_utcnow)
+
+
 class Asset(Base):
     """Uploaded candidate documents (CV, transcript, base summary, SOP)."""
 

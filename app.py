@@ -399,6 +399,14 @@ def page_documents():
         "transcript": "Transcript",
         "summary": "Base research summary",
         "sop": "Statement of purpose (SOP)",
+        "recommendation": "Recommendation letter",
+        "english_test": "English test (IELTS/TOEFL) certificate",
+        "degree_certificate": "Degree certificate / diploma",
+        "research_proposal": "Research proposal",
+        "writing_sample": "Writing sample",
+        "portfolio": "Portfolio",
+        "passport": "Passport / ID",
+        "photo": "Passport photo",
     }
     existing = {a["kind"]: a for a in (api_get("/assets") or {}).get("assets", [])}
     for kind, label in KIND_LABELS.items():
@@ -411,8 +419,10 @@ def page_documents():
                 st.warning(cur["warning"])
         else:
             st.caption("Not uploaded yet.")
-        up = st.file_uploader(f"Upload {label}", type=["pdf", "txt", "doc", "docx"],
-                              key=f"upl_{kind}")
+        up = st.file_uploader(
+            f"Upload {label}",
+            type=["pdf", "txt", "md", "doc", "docx", "png", "jpg", "jpeg"],
+            key=f"upl_{kind}")
         if up is not None and st.button(f"Save {label}", key=f"save_{kind}"):
             res = api_post_file("/assets", kind, up)
             if res:
@@ -422,6 +432,95 @@ def page_documents():
                 st.success(msg)
                 st.rerun()
         st.divider()
+
+
+def page_profile():
+    st.header("🧑‍🎓 Profile")
+    st.caption("Your application details — used to auto-fill application forms and to "
+               "personalise outreach. Stored in your database (RLS on). Sensitive "
+               "fields are optional; fill only what you're comfortable with.")
+    data = api_get("/profile") or {}
+    ov = data.get("overrides", {}) or {}
+    contact = ov.get("contact", {}) or {}
+    addr = ov.get("address", {}) or {}
+    scores = ov.get("test_scores", {}) or {}
+    referees = ov.get("referees", []) or []
+
+    with st.form("profile_form"):
+        st.subheader("Personal")
+        name = st.text_input("Full name", ov.get("name", ""))
+        c1, c2 = st.columns(2)
+        dob = c1.text_input("Date of birth (YYYY-MM-DD)", ov.get("date_of_birth", ""))
+        gender = c2.text_input("Gender", ov.get("gender", ""))
+        nationality = c1.text_input("Nationality", ov.get("nationality", ""))
+        location = c2.text_input("Location (City, Country)", ov.get("location", ""))
+
+        st.subheader("Contact")
+        e1, e2 = st.columns(2)
+        email = e1.text_input("Email", contact.get("email", ""))
+        phone = e2.text_input("Phone", contact.get("phone", ""))
+        linkedin = e1.text_input("LinkedIn", contact.get("linkedin", ""))
+        github = e2.text_input("GitHub", contact.get("github", ""))
+        scholar = e1.text_input("Google Scholar", contact.get("scholar", ""))
+        orcid = e2.text_input("ORCID", contact.get("orcid", ""))
+        website = e1.text_input("Website", contact.get("website", ""))
+
+        st.subheader("Address (optional)")
+        a1, a2 = st.columns(2)
+        line1 = a1.text_input("Street address", addr.get("line1", ""))
+        city = a2.text_input("City", addr.get("city", ""))
+        state = a1.text_input("State / Province", addr.get("state", ""))
+        postcode = a2.text_input("Postcode / ZIP", addr.get("postcode", ""))
+        country = a1.text_input("Country", addr.get("country", ""))
+
+        st.subheader("Academic")
+        gpa = st.text_input("GPA / grade", ov.get("gpa", ""))
+        languages = st.text_input("Languages (comma-separated)",
+                                  ", ".join(ov.get("languages", []) or []))
+        s1, s2, s3 = st.columns(3)
+        ielts = s1.text_input("IELTS", scores.get("ielts", ""))
+        toefl = s2.text_input("TOEFL", scores.get("toefl", ""))
+        gre = s3.text_input("GRE", scores.get("gre", ""))
+        gmat = s1.text_input("GMAT", scores.get("gmat", ""))
+        duolingo = s2.text_input("Duolingo", scores.get("duolingo", ""))
+
+        st.subheader("Sensitive (optional)")
+        passport = st.text_input("Passport number", ov.get("passport_number", ""),
+                                 type="password")
+
+        st.subheader("Referees")
+        st.caption("Most applications ask for 2–3. Leave blank to skip.")
+        ref_inputs = []
+        for i in range(3):
+            r = referees[i] if i < len(referees) else {}
+            st.markdown(f"**Referee {i + 1}**")
+            r1, r2 = st.columns(2)
+            rn = r1.text_input("Name", r.get("name", ""), key=f"rn{i}")
+            re_ = r2.text_input("Email", r.get("email", ""), key=f"re{i}")
+            ri = r1.text_input("Institution", r.get("institution", ""), key=f"ri{i}")
+            rr = r2.text_input("Relationship", r.get("relationship", ""), key=f"rr{i}")
+            ref_inputs.append({"name": rn, "email": re_,
+                               "institution": ri, "relationship": rr})
+
+        submitted = st.form_submit_button("💾 Save profile")
+
+    if submitted:
+        payload = {
+            "name": name, "date_of_birth": dob, "gender": gender,
+            "nationality": nationality, "location": location,
+            "passport_number": passport, "gpa": gpa,
+            "languages": [s.strip() for s in languages.split(",") if s.strip()],
+            "contact": {"email": email, "phone": phone, "linkedin": linkedin,
+                        "github": github, "scholar": scholar, "orcid": orcid,
+                        "website": website},
+            "address": {"line1": line1, "city": city, "state": state,
+                        "postcode": postcode, "country": country},
+            "test_scores": {"ielts": ielts, "toefl": toefl, "gre": gre,
+                            "gmat": gmat, "duolingo": duolingo},
+            "referees": [r for r in ref_inputs if r.get("name") or r.get("email")],
+        }
+        if api_put("/profile", payload):
+            st.success("Profile saved.")
 
 
 def page_apply():
@@ -474,6 +573,7 @@ PAGES = {
     "Add Opportunity": page_add,
     "Prospecting": page_prospecting,
     "Professors": page_professors,
+    "Profile": page_profile,
     "Documents": page_documents,
     "Apply": page_apply,
     "Approvals": page_approvals,
