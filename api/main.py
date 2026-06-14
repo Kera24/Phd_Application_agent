@@ -87,6 +87,16 @@ class FillPlanRequest(BaseModel):
     url: Optional[str] = None         # override the opportunity's application_link
 
 
+class DiscoverRequest(BaseModel):
+    field: Optional[str] = None
+    country: Optional[str] = None
+    max_per_query: int = 5
+
+
+class DiscoverRunRequest(BaseModel):
+    url: str
+
+
 def _run_config(thread_id: str) -> dict:
     return {"configurable": {"thread_id": thread_id}, "recursion_limit": 100}
 
@@ -423,6 +433,30 @@ def fill_plan(opp_id: int, req: FillPlanRequest) -> dict:
         plan = app_filler.build_fill_plan(opp, config_loader.profile(), fields)
         return {"opportunity_id": opp_id, "url": url, "field_count": len(fields),
                 "method": "llm" if llm.available() else "heuristic", "plan": plan}
+
+
+@app.post("/discover")
+def discover(req: DiscoverRequest) -> dict:
+    """Proactively search for funded-PhD postings (review-only — no DB writes)."""
+    import os
+    from modules import discovery
+    with dbsession.session_scope() as s:
+        candidates = discovery.discover_candidates(
+            s, field=req.field, country=req.country, max_per_query=req.max_per_query)
+    return {"candidates": candidates, "count": len(candidates),
+            "tavily_enabled": bool(os.environ.get("TAVILY_API_KEY"))}
+
+
+@app.post("/discover/run")
+def discover_run(req: DiscoverRunRequest) -> dict:
+    """Fetch a chosen discovered posting and run it through the pipeline."""
+    from modules import discovery
+    text = discovery.fetch_page_text(req.url)
+    if not text:
+        raise HTTPException(422, f"could not fetch {req.url!r} (blocked or empty)")
+    result = start_run(RunRequest(linkedin_inputs=[text]))
+    result["source_url"] = req.url
+    return result
 
 
 @app.get("/professors")

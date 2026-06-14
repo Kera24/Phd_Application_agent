@@ -11,6 +11,7 @@ or fuzzy title match before inserting.
 from __future__ import annotations
 
 import os
+import re
 from typing import Optional
 
 from rapidfuzz import fuzz
@@ -126,6 +127,62 @@ def prospect_field_country(field: str, country: str,
         # Active authors in the field (recent, productive).
         authors = paper_apis.search_authors(f"{field}", limit=max_results)
     return {"country_funded": country_funded, "labs": labs, "authors": authors}
+
+
+# --- Phase 4: review-only proactive discovery -------------------------------
+
+def _strip_html(html: str) -> str:
+    text = re.sub(r"<script.*?</script>|<style.*?</style>", " ", html or "",
+                  flags=re.DOTALL | re.IGNORECASE)
+    text = re.sub(r"<[^>]+>", " ", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def fetch_page_text(url: str, *, limit: int = 8000) -> str:
+    """Fetch a discovered posting's page (robots-aware cache) as readable text."""
+    from modules import http_cache
+    html = http_cache.get(url)
+    if not html:
+        return ""
+    return _strip_html(html)[:limit]
+
+
+def discover_candidates(session: Session, *, field: Optional[str] = None,
+                        country: Optional[str] = None,
+                        max_per_query: int = 5) -> list[dict]:
+    """Search for funded-PhD postings and return them for human review.
+
+    Review-only: does NOT create opportunities or run the pipeline. Already-imported
+    URLs (matching an existing Opportunity.source_url) are filtered out.
+    """
+    cfg = config_loader.config()
+    if field or country:
+        fields = [field] if field else cfg.get("target_fields", [])
+        countries = [country] if country else cfg.get("target_countries", [])
+        kw = (cfg.get("advertised_search_keywords") or ["fully funded PhD"])[0]
+        queries = [f"{kw} {f} {c}".strip() for f in (fields or [""]) for c in (countries or [""])]
+    else:
+        queries = advertised_queries()
+
+    seen: set[str] = set()
+    candidates: list[dict] = []
+    for q in queries:
+        for r in tavily_search(q, max_results=max_per_query):
+            url = r.get("url")
+            if not url or url in seen:
+                continue
+            seen.add(url)
+            if session.query(Opportunity).filter(Opportunity.source_url == url).first():
+                continue  # already imported
+            content = r.get("content", "") or ""
+            candidates.append({
+                "title": r.get("title"),
+                "url": url,
+                "snippet": content[:300],
+                "query": q,
+                "funding_signals": funding_likelihood_evidence(content),
+            })
+    return candidates
 
 
 def funding_likelihood_evidence(text: str) -> list[str]:

@@ -564,6 +564,42 @@ def page_apply():
         st.caption("The script fills the fields, then pauses so you can review and submit.")
 
 
+def page_discover():
+    st.header("🔎 Discover (proactive search)")
+    st.caption("Search the web for funded PhD postings in your target fields/regions. "
+               "Review the candidates, then run any of them through the pipeline — "
+               "nothing is processed until you click Run.")
+    c1, c2, c3 = st.columns([2, 2, 1])
+    field = c1.text_input("Field (optional)", "")
+    country = c2.text_input("Country (optional)", "")
+    n = c3.number_input("Per query", 1, 10, 5)
+    if st.button("🔎 Discover"):
+        with st.spinner("Searching…"):
+            res = api_post("/discover", {"field": field or None,
+                                         "country": country or None,
+                                         "max_per_query": int(n)})
+        if res is not None:
+            st.session_state["discover_res"] = res
+
+    res = st.session_state.get("discover_res")
+    if res:
+        if not res.get("tavily_enabled"):
+            st.warning("TAVILY_API_KEY is not set on the backend, so web search is "
+                       "disabled and no candidates can be found. Set it in Render → Environment.")
+        cands = res.get("candidates", [])
+        st.caption(f"{len(cands)} candidate(s).")
+        for i, c in enumerate(cands):
+            with st.expander(c.get("title") or c["url"]):
+                st.markdown(f"[{c['url']}]({c['url']})")
+                if c.get("funding_signals"):
+                    st.caption("Funding signals: " + ", ".join(c["funding_signals"]))
+                st.write(c.get("snippet") or "")
+                st.caption(f"query: {c.get('query')}")
+                if st.button("Run this through the pipeline", key=f"runc_{i}"):
+                    with st.spinner("Fetching page and running pipeline…"):
+                        _show_run_result(api_post("/discover/run", {"url": c["url"]}))
+
+
 # --------------------------------------------------------------------------- #
 # Router
 # --------------------------------------------------------------------------- #
@@ -571,6 +607,7 @@ PAGES = {
     "Pipeline": page_pipeline,
     "Opportunities": page_opportunities,
     "Add Opportunity": page_add,
+    "Discover": page_discover,
     "Prospecting": page_prospecting,
     "Professors": page_professors,
     "Profile": page_profile,
