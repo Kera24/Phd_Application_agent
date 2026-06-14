@@ -78,6 +78,16 @@ def api_post_file(path: str, kind, uploaded_file):
         return None
 
 
+def api_delete(path: str):
+    try:
+        r = requests.delete(f"{API}{path}", timeout=120)
+        r.raise_for_status()
+        return r.json()
+    except Exception as exc:
+        st.error(f"DELETE {path} failed: {exc}")
+        return None
+
+
 def _backend_ok() -> bool:
     return api_get("/healthz") is not None
 
@@ -127,29 +137,120 @@ def page_pipeline():
                         st.rerun()
 
 
+def _opp_detail_view(oid):
+    d = api_get(f"/opportunities/{oid}/detail")
+    if not d:
+        return
+    o = d["opportunity"]
+    st.markdown(f"#### {o.get('title') or o.get('professor_name') or ('#' + str(oid))}")
+    st.write(f"**University:** {o.get('university') or '—'}  ·  **Country:** "
+             f"{o.get('country') or '—'}  ·  **Fit:** {o.get('fit_score')}  ·  "
+             f"**Status:** {d['application']['status']}")
+    st.write(f"**Funding:** {o.get('funding_status')} — {o.get('funding_evidence') or ''}")
+    st.write(f"**Professor:** {o.get('professor_name') or '—'} "
+             f"<{o.get('professor_email') or ''}>  ·  **Deadline:** {o.get('deadline') or '—'}")
+    if o.get("application_link"):
+        st.markdown(f"[Application link]({o['application_link']})")
+    b = d.get("research_brief")
+    if b:
+        with st.expander("🔬 Research brief"):
+            st.write(f"**Gap:** {b.get('chosen_gap')}")
+            st.write(f"**Question:** {b.get('research_question')}")
+            st.write(f"**Approach:** {b.get('proposed_approach')}")
+    if d.get("emails"):
+        with st.expander(f"✉ Emails ({len(d['emails'])})"):
+            for e in d["emails"]:
+                fu = " (follow-up)" if e.get("is_followup") else ""
+                st.write(f"- #{e['id']} [{e['status']}] {e.get('subject') or ''}{fu}")
+    if d.get("documents"):
+        with st.expander(f"📄 Generated documents ({len(d['documents'])})"):
+            for doc in d["documents"]:
+                st.write(f"- **{doc['kind']}** — {doc['title']}")
+    if d.get("timeline"):
+        with st.expander("🕑 Timeline"):
+            for ev in d["timeline"]:
+                st.write(f"- {(ev.get('at') or '')[:19]} · {ev['event']}")
+
+
 def page_opportunities():
     st.header("🎯 Opportunities")
     data = api_get("/opportunities")
     if not data:
         return
     opps = data["opportunities"]
-    active = [o for o in opps if o["pipeline_status"] != "archived_not_funded"]
-    archived = [o for o in opps if o["pipeline_status"] == "archived_not_funded"]
-    if active:
-        st.dataframe([{k: o[k] for k in ("id", "type", "title", "university",
-                                         "country", "funding_status", "fit_score",
-                                         "pipeline_status")} for o in active],
-                     use_container_width=True)
-    for o in active:
-        hl = "⭐ " if (o.get("fit_score") or 0) >= 70 else ""
-        with st.expander(f"{hl}#{o['id']} {o['title'] or o['professor_name']} — fit {o['fit_score']}"):
-            st.write(f"**Funding:** {o['funding_status']} — {o['funding_evidence']}")
-            st.write(f"**Professor:** {o['professor_name']} <{o['professor_email']}>")
-            if o.get("score_breakdown"):
-                st.json(o["score_breakdown"])
-    with st.expander(f"🗄 Archived (not fully funded) — {len(archived)}"):
-        for o in archived:
-            st.write(f"#{o['id']} {o['title']} — {o['funding_status']}: {o['funding_evidence']}")
+    if not opps:
+        st.info("No opportunities yet. Add or discover some first.")
+        return
+
+    # --- search / filter / sort ---
+    f1, f2, f3 = st.columns([2, 1, 1])
+    q = f1.text_input("Search", "", placeholder="title, professor, university…")
+    countries = sorted({o["country"] for o in opps if o.get("country")})
+    country = f2.selectbox("Country", ["All"] + countries)
+    fundings = sorted({o["funding_status"] for o in opps if o.get("funding_status")})
+    funding = f3.selectbox("Funding", ["All"] + fundings)
+    g1, g2 = st.columns([1, 1])
+    show_archived = g1.checkbox("Show archived", False)
+    sort_by = g2.selectbox("Sort by", ["Fit (high→low)", "Deadline (soonest)", "Newest"])
+
+    def _match(o):
+        if not show_archived and o["pipeline_status"] == "archived_not_funded":
+            return False
+        if country != "All" and o.get("country") != country:
+            return False
+        if funding != "All" and o.get("funding_status") != funding:
+            return False
+        if q:
+            hay = " ".join(str(o.get(k) or "") for k in
+                           ("title", "professor_name", "university")).lower()
+            if q.lower() not in hay:
+                return False
+        return True
+
+    rows = [o for o in opps if _match(o)]
+    if sort_by.startswith("Fit"):
+        rows.sort(key=lambda o: (o.get("fit_score") or -1), reverse=True)
+    elif sort_by.startswith("Deadline"):
+        rows.sort(key=lambda o: (o.get("deadline") is None, o.get("deadline") or ""))
+    else:
+        rows.sort(key=lambda o: o["id"], reverse=True)
+
+    st.caption(f"{len(rows)} of {len(opps)} opportunities")
+    if rows:
+        st.dataframe([{k: o.get(k) for k in ("id", "type", "title", "university",
+                       "country", "funding_status", "fit_score", "pipeline_status")}
+                      for o in rows], use_container_width=True)
+
+    labels = {o["id"]: f"#{o['id']} {o.get('title') or o.get('professor_name') or ''}"
+              for o in rows}
+    if not labels:
+        return
+
+    st.divider()
+    st.subheader("Details")
+    sel = st.selectbox("View an opportunity", list(labels.keys()),
+                       format_func=lambda i: labels[i])
+    _opp_detail_view(sel)
+
+    st.divider()
+    st.subheader("Bulk actions")
+    pick = st.multiselect("Select opportunities", list(labels.keys()),
+                          format_func=lambda i: labels[i])
+    if pick:
+        b1, b2 = st.columns(2)
+        new_status = b1.selectbox("Set application status",
+                                  ["interested", "preparing", "applied", "submitted",
+                                   "interview", "offer", "rejected", "declined"])
+        if b1.button("Apply status"):
+            for i in pick:
+                api_put(f"/applications/{i}", {"status": new_status})
+            st.success(f"Updated {len(pick)}.")
+            st.rerun()
+        if b2.button(f"🗑 Delete {len(pick)} selected", type="secondary"):
+            for i in pick:
+                api_delete(f"/opportunities/{i}")
+            st.success(f"Deleted {len(pick)}.")
+            st.rerun()
 
 
 def _show_run_result(res):

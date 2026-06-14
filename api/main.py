@@ -485,6 +485,72 @@ def update_application(opp_id: int, req: ApplicationUpdate) -> dict:
         return {"opportunity_id": opp_id, "status": t.status, "notes": t.notes or ""}
 
 
+@app.get("/opportunities/{opp_id}/detail")
+def opportunity_detail(opp_id: int) -> dict:
+    """Everything about one opportunity: research brief, emails, docs, status, timeline."""
+    from db.models import PipelineEvent
+    with dbsession.session_scope() as s:
+        o = s.get(Opportunity, opp_id)
+        if o is None:
+            raise HTTPException(404, "unknown opportunity")
+        prof = s.get(Professor, o.professor_id) if o.professor_id else None
+        brief_row = (s.query(ResearchBrief).filter_by(opportunity_id=opp_id)
+                     .order_by(ResearchBrief.id.desc()).first())
+        emails = s.query(Email).filter_by(opportunity_id=opp_id).order_by(Email.id).all()
+        docs = (s.query(GeneratedDocument).filter_by(opportunity_id=opp_id)
+                .order_by(GeneratedDocument.kind).all())
+        track = s.query(ApplicationTracking).filter_by(opportunity_id=opp_id).first()
+        eids = [e.id for e in emails]
+        events = ((s.query(PipelineEvent).filter(PipelineEvent.email_id.in_(eids))
+                   .order_by(PipelineEvent.id.desc()).limit(30).all()) if eids else [])
+        return {
+            "opportunity": {
+                "id": o.id, "title": o.position_title, "university": o.university,
+                "country": o.country, "funding_status": o.funding_status,
+                "funding_evidence": o.funding_evidence, "fit_score": o.fit_score,
+                "professor_name": o.professor_name, "professor_email": o.professor_email,
+                "deadline": o.deadline.isoformat() if o.deadline else None,
+                "application_link": o.application_link,
+                "pipeline_status": o.pipeline_status,
+                "required_documents": o.required_documents or [],
+            },
+            "professor": ({"name": prof.name, "themes": prof.research_themes,
+                           "gap": prof.identified_gap, "angle": prof.proposed_angle,
+                           "papers": prof.recent_papers or []} if prof else None),
+            "research_brief": brief_row.data if brief_row else None,
+            "emails": [{"id": e.id, "subject": e.subject, "status": e.status,
+                        "is_followup": e.is_followup,
+                        "quality_gate_passed": e.quality_gate_passed} for e in emails],
+            "documents": [{"id": d.id, "kind": d.kind, "title": d.title} for d in docs],
+            "application": {"status": track.status if track else "interested",
+                            "notes": (track.notes if track else "") or ""},
+            "timeline": [{"event": ev.event, "detail": ev.detail,
+                          "at": ev.created_at.isoformat() if ev.created_at else None}
+                         for ev in events],
+        }
+
+
+@app.delete("/opportunities/{opp_id}")
+def delete_opportunity(opp_id: int) -> dict:
+    """Delete an opportunity and its dependent rows (emails, docs, brief, tracking…)."""
+    from db.models import Approval, Followup, PipelineEvent, ResearchGap, ScheduledEmail
+    with dbsession.session_scope() as s:
+        o = s.get(Opportunity, opp_id)
+        if o is None:
+            raise HTTPException(404, "unknown opportunity")
+        eids = [e.id for e in s.query(Email).filter_by(opportunity_id=opp_id).all()]
+        if eids:
+            for model in (PipelineEvent, Approval, ScheduledEmail, Followup):
+                s.query(model).filter(model.email_id.in_(eids)).delete(synchronize_session=False)
+            s.query(Followup).filter(Followup.followup_email_id.in_(eids)).delete(
+                synchronize_session=False)
+            s.query(Email).filter(Email.id.in_(eids)).delete(synchronize_session=False)
+        for model in (GeneratedDocument, ResearchBrief, ResearchGap, ApplicationTracking):
+            s.query(model).filter_by(opportunity_id=opp_id).delete(synchronize_session=False)
+        s.delete(o)
+    return {"deleted": opp_id}
+
+
 @app.get("/status")
 def status() -> dict:
     """Aggregate configuration/health so the dashboard can show a setup checklist."""
