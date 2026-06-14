@@ -153,20 +153,31 @@ def _web_client_config() -> dict:
         "client from Google Cloud Console) on the backend.")
 
 
+def _web_flow(redirect_uri: str):
+    """Build a web OAuth Flow with PKCE disabled.
+
+    PKCE needs the authorize-step code_verifier carried into the (separate)
+    token-exchange request; since this is a confidential client (has a secret),
+    we disable PKCE instead of persisting the verifier across requests.
+    """
+    from google_auth_oauthlib.flow import Flow
+    return Flow.from_client_config(_web_client_config(), scopes=WEB_SCOPES,
+                                   redirect_uri=redirect_uri,
+                                   autogenerate_code_verifier=False)
+
+
 def build_auth_url(redirect_uri: str) -> tuple[str, str]:
     """Return (consent_url, state) for the user to approve in their own browser."""
-    from google_auth_oauthlib.flow import Flow
-    flow = Flow.from_client_config(_web_client_config(), scopes=WEB_SCOPES,
-                                   redirect_uri=redirect_uri)
-    return flow.authorization_url(access_type="offline",
-                                  include_granted_scopes="true", prompt="consent")
+    return _web_flow(redirect_uri).authorization_url(
+        access_type="offline", include_granted_scopes="true", prompt="consent")
 
 
 def complete_auth(code: str, redirect_uri: str) -> bool:
     """Exchange the OAuth code for a token and persist it (DB)."""
-    from google_auth_oauthlib.flow import Flow
-    flow = Flow.from_client_config(_web_client_config(), scopes=WEB_SCOPES,
-                                   redirect_uri=redirect_uri)
+    # Google may return scopes in a different order / add openid; relax so the
+    # exchange doesn't fail on a benign scope mismatch.
+    os.environ.setdefault("OAUTHLIB_RELAX_TOKEN_SCOPE", "1")
+    flow = _web_flow(redirect_uri)
     flow.fetch_token(code=code)
     _save_token_dict(json.loads(flow.credentials.to_json()))
     return True
