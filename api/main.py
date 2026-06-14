@@ -116,6 +116,61 @@ def start_run(req: RunRequest) -> dict:
     return {"thread_id": thread_id, "status": "completed"}
 
 
+@app.post("/opportunities/ingest-file")
+def ingest_file(file: UploadFile = File(...)) -> dict:
+    """Extract a posting from an uploaded image or PDF, then run the full pipeline.
+
+    Text PDFs are read with pypdf (free, no LLM). Images and scanned/short PDFs
+    are transcribed with Claude vision. The extracted text is fed into the same
+    graph as /runs, so the funding gate / research / email steps are unchanged.
+    """
+    import os
+    import tempfile
+    from modules import ingest, vision_extract
+
+    fname = file.filename or "upload"
+    suffix = Path(fname).suffix.lower()
+    if suffix not in vision_extract.SUPPORTED_SUFFIXES:
+        raise HTTPException(
+            400, f"Unsupported file type {suffix!r}; use one of "
+                 f"{', '.join(vision_extract.SUPPORTED_SUFFIXES)}.")
+    data = file.file.read()
+
+    text = ""
+    method = None
+    # Text-PDF fast path: pypdf, no LLM required.
+    if suffix == ".pdf":
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
+            tmp.write(data)
+            tmp_path = tmp.name
+        try:
+            text = ingest.extract_text(tmp_path)
+        finally:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+        if len(text) >= ingest.MIN_CHARS:
+            method = "pdf_text"
+        else:
+            text = ""  # too little extracted -> likely scanned; fall through to vision
+
+    # Vision path: images, or scanned/short PDFs.
+    if not text:
+        try:
+            text = vision_extract.transcribe_file(data, fname)
+            method = "vision"
+        except vision_extract.VisionUnavailable as exc:
+            raise HTTPException(422, f"Could not extract text from {fname!r}: {exc}")
+
+    if not text.strip():
+        raise HTTPException(422, f"No text could be extracted from {fname!r}.")
+
+    result = start_run(RunRequest(linkedin_inputs=[text]))
+    result["extraction"] = {"method": method, "char_count": len(text)}
+    return result
+
+
 # --- approvals --------------------------------------------------------------
 def _followup_review_item(e: Email) -> dict:
     """Approval-queue item for a follow-up draft (DB-backed, not a graph thread)."""

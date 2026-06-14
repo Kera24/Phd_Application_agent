@@ -48,11 +48,16 @@ def api_put(path: str, json=None):
         return None
 
 
-def api_post_file(path: str, kind: str, uploaded_file):
-    """POST a multipart file upload (Streamlit UploadedFile) to the backend."""
+def api_post_file(path: str, kind, uploaded_file):
+    """POST a multipart file upload (Streamlit UploadedFile) to the backend.
+
+    `kind` is sent as a form field when provided (e.g. /assets); pass None for
+    endpoints that take only the file (e.g. /opportunities/ingest-file).
+    """
     try:
         files = {"file": (uploaded_file.name, uploaded_file.getvalue())}
-        r = requests.post(f"{API}{path}", data={"kind": kind}, files=files, timeout=120)
+        data = {"kind": kind} if kind is not None else None
+        r = requests.post(f"{API}{path}", data=data, files=files, timeout=600)
         r.raise_for_status()
         return r.json()
     except Exception as exc:
@@ -134,24 +139,46 @@ def page_opportunities():
             st.write(f"#{o['id']} {o['title']} — {o['funding_status']}: {o['funding_evidence']}")
 
 
+def _show_run_result(res):
+    """Render the outcome of a pipeline run (shared by text + file intake)."""
+    if not res:
+        return
+    extr = res.get("extraction")
+    if extr:
+        st.caption(f"Extracted via **{extr['method']}** ({extr['char_count']} chars).")
+    if res.get("status") == "awaiting_approval":
+        st.success(f"Draft ready for approval (thread {res['thread_id']}). "
+                   "See the Approvals page.")
+    else:
+        st.info("Run completed. Opportunity archived or parked "
+                "(not fully funded / below fit threshold / needs review). "
+                "Check Opportunities & Pipeline.")
+
+
 def page_add():
     st.header("➕ Add Opportunity")
-    st.caption("Paste a LinkedIn post / posting text. It runs the full graph; "
-               "fully funded ones reach the approval queue, others are archived.")
-    raw = st.text_area("Posting text", height=220)
-    if st.button("Run pipeline"):
-        if not raw.strip():
-            st.warning("Paste some text first.")
-        else:
-            res = api_post("/runs", {"linkedin_inputs": [raw]})
-            if res:
-                if res["status"] == "awaiting_approval":
-                    st.success(f"Draft ready for approval (thread {res['thread_id']}). "
-                               "See the Approvals page.")
-                else:
-                    st.info("Run completed. Opportunity archived or parked "
-                            "(not fully funded / below fit threshold / needs review). "
-                            "Check Opportunities & Pipeline.")
+    tab_text, tab_file = st.tabs(["📝 Paste text", "🖼 Upload image / PDF"])
+
+    with tab_text:
+        st.caption("Paste a LinkedIn post / posting text. It runs the full graph; "
+                   "fully funded ones reach the approval queue, others are archived.")
+        raw = st.text_area("Posting text", height=220)
+        if st.button("Run pipeline"):
+            if not raw.strip():
+                st.warning("Paste some text first.")
+            else:
+                _show_run_result(api_post("/runs", {"linkedin_inputs": [raw]}))
+
+    with tab_file:
+        st.caption("Upload a screenshot/photo of a posting or a PDF flyer. Text PDFs "
+                   "are read directly; images and scanned PDFs are transcribed with "
+                   "Claude vision (needs Anthropic credits). Then the same pipeline runs.")
+        up = st.file_uploader("Posting image or PDF",
+                              type=["png", "jpg", "jpeg", "webp", "gif", "pdf"],
+                              key="ingest_file")
+        if up is not None and st.button("Extract & run pipeline"):
+            with st.spinner("Extracting text and running the pipeline…"):
+                _show_run_result(api_post_file("/opportunities/ingest-file", None, up))
 
 
 def page_prospecting():
