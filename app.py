@@ -424,6 +424,47 @@ def page_documents():
         st.divider()
 
 
+def page_apply():
+    st.header("📝 Application Assist")
+    st.caption("Generate a fill-plan for an opportunity's application form, then run "
+               "the local Playwright script to fill it in your own browser — you "
+               "review and click submit yourself. Nothing is submitted automatically.")
+    opps = (api_get("/opportunities") or {}).get("opportunities", [])
+    if not opps:
+        st.info("No opportunities yet. Add one first.")
+        return
+    options = {f"#{o['id']} {o.get('title') or o.get('professor_name') or '—'}": o
+               for o in opps}
+    label = st.selectbox("Opportunity", list(options.keys()))
+    o = options[label]
+    url_override = st.text_input("Application URL", o.get("application_link") or "",
+                                 help="Defaults to the opportunity's application link.")
+    if st.button("Generate fill-plan"):
+        body = {"url": url_override} if url_override.strip() else {}
+        res = api_post(f"/opportunities/{o['id']}/fill-plan", body)
+        if res:
+            st.session_state["fill_plan"] = res
+
+    res = st.session_state.get("fill_plan")
+    if res and res.get("opportunity_id") == o["id"]:
+        st.caption(f"Source: {res['url']} · {res['field_count']} fields · method: {res['method']}")
+        rows = [{"Field": p["label"], "Selector": p.get("name") or p.get("id"),
+                 "Type": p["type"], "Value": p["value"],
+                 "You fill": "✏️" if p["needs_human"] else "", "Source": p["source"]}
+                for p in res["plan"]]
+        if rows:
+            st.dataframe(rows, use_container_width=True)
+        else:
+            st.warning("No fillable form fields found on that page (it may be a portal "
+                       "that loads its form via JavaScript or requires login).")
+        st.subheader("Fill it in your browser")
+        st.caption("One-time local setup: `pip install -r requirements-local.txt` then "
+                   "`playwright install chromium`.")
+        st.code(f"python scripts/fill_application.py --api {API} "
+                f"--opportunity {o['id']} --cv path/to/your_cv.pdf", language="bash")
+        st.caption("The script fills the fields, then pauses so you can review and submit.")
+
+
 # --------------------------------------------------------------------------- #
 # Router
 # --------------------------------------------------------------------------- #
@@ -434,6 +475,7 @@ PAGES = {
     "Prospecting": page_prospecting,
     "Professors": page_professors,
     "Documents": page_documents,
+    "Apply": page_apply,
     "Approvals": page_approvals,
     "Analytics": page_analytics,
     "Settings": page_settings,

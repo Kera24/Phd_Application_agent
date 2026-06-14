@@ -83,6 +83,10 @@ class DecisionRequest(BaseModel):
     by: str = "dashboard"
 
 
+class FillPlanRequest(BaseModel):
+    url: Optional[str] = None         # override the opportunity's application_link
+
+
 def _run_config(thread_id: str) -> dict:
     return {"configurable": {"thread_id": thread_id}, "recursion_limit": 100}
 
@@ -394,6 +398,31 @@ def opportunities() -> dict:
             "deadline": o.deadline.isoformat() if o.deadline else None,
             "research_fields": o.research_fields,
         } for o in opps]}
+
+
+@app.post("/opportunities/{opp_id}/fill-plan")
+def fill_plan(opp_id: int, req: FillPlanRequest) -> dict:
+    """Build an assisted application fill-plan for an opportunity's form.
+
+    Fetches the application page (robots-aware, cached), extracts its form fields,
+    and maps the candidate profile onto them. The plan is consumed locally by
+    scripts/fill_application.py (Playwright) — nothing is submitted here.
+    """
+    from modules import app_filler, config_loader, http_cache, llm
+    with dbsession.session_scope() as s:
+        opp = s.get(Opportunity, opp_id)
+        if opp is None:
+            raise HTTPException(404, "unknown opportunity")
+        url = req.url or opp.application_link
+        if not url:
+            raise HTTPException(400, "no application_link on this opportunity; pass a url")
+        html = http_cache.get(url)
+        if html is None:
+            raise HTTPException(422, f"could not fetch {url!r} (blocked by robots.txt or failed)")
+        fields = app_filler.extract_form_fields(html)
+        plan = app_filler.build_fill_plan(opp, config_loader.profile(), fields)
+        return {"opportunity_id": opp_id, "url": url, "field_count": len(fields),
+                "method": "llm" if llm.available() else "heuristic", "plan": plan}
 
 
 @app.get("/professors")

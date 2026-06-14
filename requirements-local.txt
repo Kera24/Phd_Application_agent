@@ -1,0 +1,9 @@
+# Optional, LOCAL-ONLY dependencies for the assisted application filler
+# (scripts/fill_application.py). NOT installed on the server — Playwright pulls a
+# full browser and is only useful on a machine where you can see and submit forms.
+#
+#   pip install -r requirements-local.txt
+#   playwright install chromium
+
+requests>=2.31
+playwright>=1.44
