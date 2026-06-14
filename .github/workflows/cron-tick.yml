@@ -1,0 +1,29 @@
+name: ScholarReach cron tick
+
+# Drives the durable heartbeat for the Render free tier (which sleeps when idle).
+# Each run POSTs /cron/tick, which wakes the backend and: delivers any due
+# scheduled sends, then runs reply detection + due follow-up drafting.
+#
+# Required repo secrets (Settings → Secrets and variables → Actions):
+#   SCHOLARREACH_BACKEND_URL  e.g. https://scholarreach-backend.onrender.com
+#   SCHOLARREACH_CRON_TOKEN   must match the CRON_TOKEN env var set in Render
+#
+# Note: the send window is Mon–Thu 08:00–09:00 professor-local, so a coarse
+# interval is fine. GitHub may delay scheduled runs under load.
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"   # every 30 minutes (UTC)
+  workflow_dispatch: {}        # allow manual runs from the Actions tab
+
+jobs:
+  tick:
+    runs-on: ubuntu-latest
+    steps:
+      - name: POST /cron/tick
+        env:
+          BACKEND_URL: ${{ secrets.SCHOLARREACH_BACKEND_URL }}
+          CRON_TOKEN: ${{ secrets.SCHOLARREACH_CRON_TOKEN }}
+        run: |
+          curl -fsS --max-time 120 -X POST "$BACKEND_URL/cron/tick" \
+            -H "X-Cron-Token: $CRON_TOKEN"

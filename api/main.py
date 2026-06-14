@@ -16,7 +16,7 @@ from typing import Any, Optional
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, Header, HTTPException, UploadFile
 from langgraph.types import Command
 from pydantic import BaseModel
 
@@ -289,6 +289,31 @@ def mark_email_replied(email_id: int) -> dict:
             raise HTTPException(404, "unknown email")
         followups.mark_replied(s, email, by="manual")
     return {"email_id": email_id, "reply_received": True}
+
+
+# --- durable cron tick ------------------------------------------------------
+@app.post("/cron/tick")
+def cron_tick(x_cron_token: Optional[str] = Header(None)) -> dict:
+    """Durable heartbeat for a host that sleeps (Render free tier).
+
+    An external scheduler (cron-job.org / GitHub Actions / Supabase pg_cron)
+    POSTs here on an interval. This both wakes the instance and does the
+    time-sensitive work: deliver any due scheduled sends, then run the reply /
+    follow-up scan. Both steps are idempotent, so duplicate ticks are harmless.
+
+    Protected by the CRON_TOKEN env var when set: callers must send a matching
+    `X-Cron-Token` header.
+    """
+    import os
+    expected = os.environ.get("CRON_TOKEN")
+    if expected and x_cron_token != expected:
+        raise HTTPException(401, "invalid cron token")
+    from modules import followups, scheduler as sched_mod
+    with dbsession.session_scope() as s:
+        sends = sched_mod.dispatch_due_sends(s)
+    with dbsession.session_scope() as s:
+        scan = followups.run_scan(s)
+    return {"sends": sends, "scan": scan}
 
 
 # --- follow-ups -------------------------------------------------------------

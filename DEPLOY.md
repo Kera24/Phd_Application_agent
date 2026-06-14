@@ -39,7 +39,32 @@ Streamlit Cloud (app.py)  --HTTPS-->  Render (FastAPI)  -->  Supabase (Postgres)
    (No trailing slash.)
 2. Reboot the app. The `Connection refused` errors disappear and `/healthz` + `/pipeline` resolve against the live backend.
 
-## 3. Rotate / manage secrets
+## 3. Durable scheduling (cron tick) — required for sends/follow-ups to fire
+
+The Render free tier **sleeps when idle**, so in-process timers don't run. Time-
+sensitive work (delivering due scheduled sends, reply detection, follow-up
+drafting) is driven by an external scheduler that POSTs `/cron/tick`. The
+endpoint is idempotent, so duplicate ticks are harmless.
+
+1. In **Render** → Environment, add `CRON_TOKEN` = a long random string. The
+   endpoint requires a matching `X-Cron-Token` header (if `CRON_TOKEN` is unset
+   the endpoint is unprotected — set it).
+2. Pick a scheduler:
+   - **GitHub Actions (recommended, in this repo):** `.github/workflows/cron-tick.yml`
+     runs every 30 min. Add two repo secrets (Settings → Secrets and variables →
+     Actions): `SCHOLARREACH_BACKEND_URL` (your Render URL) and
+     `SCHOLARREACH_CRON_TOKEN` (same value as `CRON_TOKEN`).
+   - **cron-job.org / EasyCron:** create a job that POSTs
+     `https://<service>.onrender.com/cron/tick` with header `X-Cron-Token: <token>`.
+   - **Supabase pg_cron + pg_net:** schedule an `net.http_post` to the same URL/header.
+3. Verify: `curl -X POST https://<service>.onrender.com/cron/tick -H "X-Cron-Token: <token>"`
+   returns `{"sends": {...}, "scan": {...}}`.
+
+> Sends only actually go out when `approved_send_mode` is ON **and** an email has
+> been approved (reaching `scheduled`). In draft-only mode the tick reports
+> `sends.skipped` and never sends.
+
+## 4. Rotate / manage secrets
 
 - Set every secret in the **Render** and **Streamlit Cloud** dashboards — never commit them. `.mcp.json`, `gmail_credentials.json`, and `token.json` are git-ignored and excluded from the Docker image via `.dockerignore`.
 - After rotating the Supabase DB password, update `DATABASE_URL` in Render only.

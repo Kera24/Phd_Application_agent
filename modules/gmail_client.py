@@ -214,13 +214,20 @@ def _dedupe_ok(session: Session, prof: Professor, email: Email) -> bool:
 
 
 def send(session: Session, email: Email,
-         attachment_paths: dict[str, str], *, max_retries: int = 3) -> str:
-    """Send an email. Gated: requires approved_send_mode AND status == 'approved'."""
+         attachment_paths: dict[str, str], *, max_retries: int = 3,
+         allowed_statuses: tuple[str, ...] = ("approved",)) -> str:
+    """Send an email. Gated: requires approved_send_mode AND an allowed status.
+
+    Default allowed status is 'approved' (the interactive path). The durable
+    dispatcher passes ('approved', 'scheduled') to deliver a queued email when
+    its send time arrives — 'scheduled' is only reachable via Human Approval.
+    """
     cfg = config_loader.config()
     if not cfg.get("approved_send_mode"):
         raise SendNotPermitted("approved_send_mode is false in config.")
-    if email.status != "approved":
-        raise SendNotPermitted(f"Email status is {email.status!r}, must be 'approved'.")
+    if email.status not in allowed_statuses:
+        raise SendNotPermitted(
+            f"Email status is {email.status!r}, must be one of {allowed_statuses}.")
     prof = email.professor
     if not prof or not prof.email:
         raise SendNotPermitted("Professor email missing.")

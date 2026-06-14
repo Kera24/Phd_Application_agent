@@ -147,3 +147,66 @@ def schedule_send(session: Session, email: Email,
                         "tz_basis": basis})
     session.flush()
     return send_utc
+
+
+# --- durable dispatch (driven by an external cron tick) ----------------------
+
+def due_scheduled_emails(session: Session, *,
+                         now_utc: Optional[dt.datetime] = None) -> list[Email]:
+    """Approved emails queued for a send time that has now arrived."""
+    now_utc = now_utc or dt.datetime.now(dt.timezone.utc)
+    return (
+        session.query(Email)
+        .filter(Email.status == "scheduled",
+                Email.scheduled_send_at_utc.isnot(None),
+                Email.scheduled_send_at_utc <= now_utc)
+        .order_by(Email.scheduled_send_at_utc)
+        .all()
+    )
+
+
+def _mark_scheduled_row(session: Session, email_id: int, status: str) -> None:
+    from db.models import ScheduledEmail
+    row = (session.query(ScheduledEmail).filter_by(email_id=email_id)
+           .order_by(ScheduledEmail.id.desc()).first())
+    if row:
+        row.status = status
+
+
+def dispatch_due_sends(session: Session, *,
+                       now_utc: Optional[dt.datetime] = None) -> dict:
+    """Send every scheduled email whose time has come. Idempotent + gated.
+
+    Safe to call repeatedly from an external cron: only 'scheduled' emails past
+    their send time are touched, and each attempt transitions the row out of
+    'scheduled' (to 'sent' or 'failed') so it is never re-attempted in a loop.
+    No-op when approved_send_mode is off (draft-only).
+    """
+    from modules import gmail_client, ingest
+
+    result = {"sent": 0, "failed": 0, "skipped": 0}
+    due = due_scheduled_emails(session, now_utc=now_utc)
+    if not config_loader.config().get("approved_send_mode"):
+        result["skipped"] = len(due)  # draft-only mode: never auto-send
+        return result
+
+    for email in due:
+        paths = ingest.asset_paths(session)
+        if email.summary_pdf_path:
+            paths = dict(paths, summary_pdf=email.summary_pdf_path)
+        try:
+            gmail_client.send(session, email, paths,
+                              allowed_statuses=("approved", "scheduled"))
+            _mark_scheduled_row(session, email.id, "sent")
+            result["sent"] += 1
+        except gmail_client.SendNotPermitted as exc:
+            # Permanent gate refusal (e.g. dedupe) — fail it so it isn't retried each tick.
+            tracker.transition(session, email, "failed", {"error": f"send refused: {exc}"})
+            _mark_scheduled_row(session, email.id, "failed")
+            result["failed"] += 1
+        except Exception:
+            # Transient failure: gmail_client.send already transitioned to 'failed'.
+            _mark_scheduled_row(session, email.id, "failed")
+            result["failed"] += 1
+    session.flush()
+    return result
