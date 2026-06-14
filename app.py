@@ -606,6 +606,76 @@ def page_discover():
                         _show_run_result(api_post("/discover/run", {"url": c["url"]}))
 
 
+def page_deep_research():
+    st.header("🔬 Deep Research & Documents")
+    st.caption("Deep-dive a professor's work, identify a grounded gap + research "
+               "question + proposed approach, then generate tailored documents "
+               "(outreach email, SOP, cover/motivation letter, research proposal). "
+               "Needs Anthropic credits for real depth.")
+    opps = (api_get("/opportunities") or {}).get("opportunities", [])
+    if not opps:
+        st.info("No opportunities yet. Add one first.")
+        return
+    options = {f"#{o['id']} {o.get('title') or o.get('professor_name') or '—'}": o
+               for o in opps}
+    label = st.selectbox("Opportunity", list(options.keys()))
+    oid = options[label]["id"]
+
+    if st.button("🔬 Run deep research"):
+        with st.spinner("Researching (papers + professor pages)…"):
+            res = api_post(f"/opportunities/{oid}/deep-research", {})
+        st.session_state[f"brief_{oid}"] = res.get("brief") if res else None
+
+    brief = st.session_state.get(f"brief_{oid}")
+    if brief is None:
+        got = api_get(f"/opportunities/{oid}/deep-research")
+        brief = got.get("brief") if got else None
+
+    if not brief:
+        st.info("No research brief yet — run deep research above.")
+        return
+
+    st.subheader("Research brief")
+    if brief.get("themes"):
+        st.write("**Themes:** " + ", ".join(brief["themes"]))
+    st.write(f"**Gap:** {brief.get('chosen_gap')}")
+    st.write(f"**Research question:** {brief.get('research_question')}")
+    st.write(f"**Proposed approach:** {brief.get('proposed_approach')}")
+    if brief.get("rationale"):
+        st.caption(brief["rationale"])
+    if brief.get("candidate_gaps"):
+        with st.expander("Candidate gaps considered"):
+            for g in brief["candidate_gaps"]:
+                st.write(f"- {g.get('gap')}")
+    if brief.get("citations"):
+        with st.expander("Cited papers (verified)"):
+            for c in brief["citations"]:
+                st.write(f"- {c.get('title')} ({c.get('year')})")
+    if brief.get("method") == "keyless":
+        st.warning("Generated without an LLM — add Anthropic credits for real depth.")
+
+    st.divider()
+    st.subheader("Generate documents")
+    labels = {"email": "Outreach email", "sop": "SOP",
+              "cover": "Cover / Motivation letter", "proposal": "Research proposal"}
+    kinds = st.multiselect("Documents", list(labels.keys()),
+                           default=list(labels.keys()),
+                           format_func=lambda k: labels[k])
+    if st.button("✍️ Generate selected"):
+        with st.spinner("Writing documents…"):
+            api_post(f"/opportunities/{oid}/documents", {"kinds": kinds})
+        st.rerun()
+
+    for d in (api_get(f"/opportunities/{oid}/documents") or {}).get("documents", []):
+        with st.expander(d["title"]):
+            content = st.text_area("Content", d["content"], height=320, key=f"doc_{d['id']}")
+            cc1, cc2 = st.columns(2)
+            if cc1.button("💾 Save edits", key=f"save_{d['id']}"):
+                if api_put(f"/documents/{d['id']}", {"content": content}):
+                    st.success("Saved.")
+            cc2.link_button("⬇ Download PDF", f"{API}/documents/{d['id']}/pdf")
+
+
 # --------------------------------------------------------------------------- #
 # Router
 # --------------------------------------------------------------------------- #
@@ -616,6 +686,7 @@ PAGES = {
     "Discover": page_discover,
     "Prospecting": page_prospecting,
     "Professors": page_professors,
+    "Deep Research": page_deep_research,
     "Profile": page_profile,
     "Documents": page_documents,
     "Apply": page_apply,

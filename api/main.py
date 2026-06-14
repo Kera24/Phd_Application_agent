@@ -21,7 +21,9 @@ from langgraph.types import Command
 from pydantic import BaseModel
 
 from db import session as dbsession
-from db.models import Asset, Email, Opportunity, Professor
+from db.models import (
+    Asset, Email, GeneratedDocument, Opportunity, Professor, ResearchBrief,
+)
 from modules import config_loader, gmail_client
 
 # In-memory registry of paused threads: thread_id -> last interrupt payload.
@@ -95,6 +97,15 @@ class DiscoverRequest(BaseModel):
 
 class DiscoverRunRequest(BaseModel):
     url: str
+
+
+class DocumentsRequest(BaseModel):
+    kinds: list[str] = ["email", "sop", "cover", "proposal"]
+
+
+class DocumentUpdate(BaseModel):
+    title: Optional[str] = None
+    content: Optional[str] = None
 
 
 def _run_config(thread_id: str) -> dict:
@@ -433,6 +444,81 @@ def fill_plan(opp_id: int, req: FillPlanRequest) -> dict:
         plan = app_filler.build_fill_plan(opp, config_loader.profile(), fields)
         return {"opportunity_id": opp_id, "url": url, "field_count": len(fields),
                 "method": "llm" if llm.available() else "heuristic", "plan": plan}
+
+
+# --- deep research + generated documents ------------------------------------
+@app.post("/opportunities/{opp_id}/deep-research")
+def deep_research(opp_id: int) -> dict:
+    """Run the deep-research workflow for an opportunity; persist + return the brief."""
+    from modules import deep_research as dr
+    with dbsession.session_scope() as s:
+        opp = s.get(Opportunity, opp_id)
+        if opp is None:
+            raise HTTPException(404, "unknown opportunity")
+        brief = dr.run_deep_research(s, opp)
+        return {"opportunity_id": opp_id, "brief": brief}
+
+
+@app.get("/opportunities/{opp_id}/deep-research")
+def get_deep_research(opp_id: int) -> dict:
+    with dbsession.session_scope() as s:
+        row = (s.query(ResearchBrief).filter_by(opportunity_id=opp_id)
+               .order_by(ResearchBrief.id.desc()).first())
+        return {"opportunity_id": opp_id, "brief": row.data if row else None}
+
+
+@app.post("/opportunities/{opp_id}/documents")
+def generate_documents_ep(opp_id: int, req: DocumentsRequest) -> dict:
+    from modules import documents
+    with dbsession.session_scope() as s:
+        opp = s.get(Opportunity, opp_id)
+        if opp is None:
+            raise HTTPException(404, "unknown opportunity")
+        docs = documents.generate_documents(s, opp, req.kinds)
+        return {"opportunity_id": opp_id, "documents": docs}
+
+
+@app.get("/opportunities/{opp_id}/documents")
+def list_documents(opp_id: int) -> dict:
+    with dbsession.session_scope() as s:
+        rows = (s.query(GeneratedDocument).filter_by(opportunity_id=opp_id)
+                .order_by(GeneratedDocument.kind).all())
+        return {"documents": [{"id": d.id, "kind": d.kind, "title": d.title,
+                               "content": d.content} for d in rows]}
+
+
+@app.put("/documents/{doc_id}")
+def update_document(doc_id: int, req: DocumentUpdate) -> dict:
+    with dbsession.session_scope() as s:
+        doc = s.get(GeneratedDocument, doc_id)
+        if doc is None:
+            raise HTTPException(404, "unknown document")
+        if req.title is not None:
+            doc.title = req.title
+        if req.content is not None:
+            doc.content = req.content
+        s.flush()
+        return {"id": doc.id, "kind": doc.kind, "title": doc.title, "content": doc.content}
+
+
+@app.get("/documents/{doc_id}/pdf")
+def document_pdf(doc_id: int):
+    """Render a generated document to PDF and stream it."""
+    import os
+    import tempfile
+    from fastapi.responses import FileResponse
+    from modules import documents
+    with dbsession.session_scope() as s:
+        doc = s.get(GeneratedDocument, doc_id)
+        if doc is None:
+            raise HTTPException(404, "unknown document")
+        title, content, kind = doc.title, doc.content, doc.kind
+    out = os.path.join(tempfile.gettempdir(), f"doc_{doc_id}.pdf")
+    try:
+        documents.render_document_pdf(title, content, out)
+    except Exception as exc:
+        raise HTTPException(500, f"PDF render failed (WeasyPrint system libs?): {exc}")
+    return FileResponse(out, media_type="application/pdf", filename=f"{kind}_{doc_id}.pdf")
 
 
 @app.post("/discover")

@@ -267,6 +267,34 @@ class ScheduledEmail(Base):
     created_at: Mapped[dt.datetime] = mapped_column(DateTime, default=_utcnow)
 
 
+class ResearchBrief(Base):
+    """Deep-research output for an opportunity: themes, gaps, the chosen gap,
+    a research question, a proposed approach, and verified citations (JSON)."""
+
+    __tablename__ = "research_briefs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    opportunity_id: Mapped[Optional[int]] = mapped_column(ForeignKey("opportunities.id"))
+    professor_id: Mapped[Optional[int]] = mapped_column(ForeignKey("professors.id"))
+    data: Mapped[Optional[dict]] = mapped_column(JSON)
+    created_at: Mapped[dt.datetime] = mapped_column(DateTime, default=_utcnow)
+
+
+class GeneratedDocument(Base):
+    """A generated, editable application document (email | sop | cover | proposal)."""
+
+    __tablename__ = "generated_documents"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    opportunity_id: Mapped[Optional[int]] = mapped_column(ForeignKey("opportunities.id"))
+    kind: Mapped[str] = mapped_column(String(24))
+    title: Mapped[Optional[str]] = mapped_column(Text)
+    content: Mapped[Optional[str]] = mapped_column(Text)
+    created_at: Mapped[dt.datetime] = mapped_column(DateTime, default=_utcnow)
+    updated_at: Mapped[dt.datetime] = mapped_column(
+        DateTime, default=_utcnow, onupdate=_utcnow)
+
+
 class ApplicantProfile(Base):
     """Single-row store of the student's application details.
 
