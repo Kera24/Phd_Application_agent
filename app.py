@@ -559,9 +559,15 @@ def page_apply():
         st.subheader("Fill it in your browser")
         st.caption("One-time local setup: `pip install -r requirements-local.txt` then "
                    "`playwright install chromium`.")
+        st.markdown("**Option A — simple filler** (best for plain static forms):")
         st.code(f"python scripts/fill_application.py --api {API} "
                 f"--opportunity {o['id']} --cv path/to/your_cv.pdf", language="bash")
-        st.caption("The script fills the fields, then pauses so you can review and submit.")
+        st.markdown("**Option B — agentic browser** (adapts to JS / multi-step portals; "
+                    "needs Anthropic credits):")
+        st.code(f"python scripts/agent_fill.py --api {API} "
+                f"--opportunity {o['id']} --cv path/to/your_cv.pdf", language="bash")
+        st.caption("Both fill the form then pause for you to review and submit — never auto-submit. "
+                   "Agentic setup: pip install -r requirements-local.txt && playwright install chromium.")
 
 
 def page_discover():

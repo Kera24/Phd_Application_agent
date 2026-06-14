@@ -7,3 +7,7 @@
 
 requests>=2.31
 playwright>=1.44
+
+# Agentic browser harness (scripts/agent_fill.py) — Claude drives the browser to
+# adapt to unseen/JS/multi-step forms. Install the latest; its API moves fast.
+browser-use
