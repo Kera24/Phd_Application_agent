@@ -421,6 +421,33 @@ def opportunities() -> dict:
         } for o in opps]}
 
 
+@app.get("/status")
+def status() -> dict:
+    """Aggregate configuration/health so the dashboard can show a setup checklist."""
+    import os
+    from modules import llm
+    with dbsession.session_scope() as s:
+        counts = {
+            "opportunities": s.query(Opportunity).count(),
+            "emails": s.query(Email).count(),
+            "professors": s.query(Professor).count(),
+        }
+        documents = sorted({a.kind for a in s.query(Asset).all()})
+    profile = config_loader.profile()
+    contact = profile.get("contact", {}) or {}
+    return {
+        "postgres": dbsession.is_postgres(),
+        "gmail_connected": gmail_client.is_authorised(),
+        "anthropic_key_set": llm.available(),
+        "tavily_enabled": bool(os.environ.get("TAVILY_API_KEY")),
+        "cron_token_set": bool(os.environ.get("CRON_TOKEN")),
+        "public_base_url_set": bool(os.environ.get("PUBLIC_BASE_URL")),
+        "profile_complete": bool(profile.get("name") and contact.get("email")),
+        "documents": documents,
+        "counts": counts,
+    }
+
+
 @app.post("/opportunities/{opp_id}/fill-plan")
 def fill_plan(opp_id: int, req: FillPlanRequest) -> dict:
     """Build an assisted application fill-plan for an opportunity's form.

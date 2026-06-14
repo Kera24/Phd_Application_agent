@@ -17,6 +17,19 @@ API = os.environ.get("SCHOLARREACH_API", "http://localhost:8001")
 
 st.set_page_config(page_title="ScholarReach", page_icon="🎓", layout="wide")
 
+# Light polish (Streamlit's styling ceiling is low, but this tightens it up).
+st.markdown(
+    """
+    <style>
+      .block-container { padding-top: 2.2rem; max-width: 1200px; }
+      [data-testid="stMetricValue"] { font-size: 1.6rem; }
+      .stButton > button { border-radius: 8px; }
+      [data-testid="stExpander"] { border-radius: 10px; }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
 
 def api_get(path: str):
     try:
@@ -682,31 +695,67 @@ def page_deep_research():
             cc2.link_button("⬇ Download PDF", f"{API}/documents/{d['id']}/pdf")
 
 
-# --------------------------------------------------------------------------- #
-# Router
-# --------------------------------------------------------------------------- #
-PAGES = {
-    "Pipeline": page_pipeline,
-    "Opportunities": page_opportunities,
-    "Add Opportunity": page_add,
-    "Discover": page_discover,
-    "Prospecting": page_prospecting,
-    "Professors": page_professors,
-    "Deep Research": page_deep_research,
-    "Profile": page_profile,
-    "Documents": page_documents,
-    "Apply": page_apply,
-    "Approvals": page_approvals,
-    "Analytics": page_analytics,
-    "Settings": page_settings,
-}
+def page_home():
+    st.header("🏠 ScholarReach")
+    st.caption("Your PhD outreach + application assistant.")
+    s = api_get("/status")
+    if not s:
+        return
+    c = s.get("counts", {})
+    m1, m2, m3 = st.columns(3)
+    m1.metric("Opportunities", c.get("opportunities", 0))
+    m2.metric("Emails", c.get("emails", 0))
+    m3.metric("Professors", c.get("professors", 0))
 
+    st.divider()
+    st.subheader("Setup checklist")
+
+    def row(ok, label, hint):
+        st.markdown(f"{'✅' if ok else '⬜'} **{label}**"
+                    + ("" if ok else f" — {hint}"))
+
+    row(s.get("postgres"), "Database (Supabase Postgres)", "backend not on Postgres")
+    row(s.get("profile_complete"), "Profile (name + email)", "fill in the Profile page")
+    row(bool(s.get("documents")), "Documents uploaded", "upload your CV/SOP on Documents")
+    row(s.get("anthropic_key_set"), "Anthropic key", "set ANTHROPIC_API_KEY in Render for AI features")
+    row(s.get("gmail_connected"), "Gmail connected", "connect on the Settings page")
+    row(s.get("tavily_enabled"), "Web search (Tavily)", "set TAVILY_API_KEY to enable Discover")
+    row(s.get("cron_token_set"), "Scheduled tasks", "set CRON_TOKEN + GitHub Actions secrets")
+    row(s.get("public_base_url_set"), "Public base URL", "set PUBLIC_BASE_URL (needed for Gmail OAuth)")
+    if s.get("documents"):
+        st.caption("Documents on file: " + ", ".join(s["documents"]))
+
+
+# --------------------------------------------------------------------------- #
+# Router — grouped navigation (st.navigation)
+# --------------------------------------------------------------------------- #
 st.sidebar.title("🎓 ScholarReach")
-st.sidebar.caption("LangGraph PhD outreach agent — human-in-the-loop")
+st.sidebar.caption("Draft-first — nothing sends without your approval.")
 if not _backend_ok():
-    st.sidebar.error(f"Backend unreachable at {API}.\nStart it:\n"
-                     "uvicorn api.main:app --port 8001")
-choice = st.sidebar.radio("Navigate", list(PAGES.keys()))
-st.sidebar.divider()
-st.sidebar.caption("Draft-first. Nothing is sent without explicit approval.")
-PAGES[choice]()
+    st.sidebar.error(f"Backend unreachable at {API}.")
+
+_nav = st.navigation({
+    "Overview": [
+        st.Page(page_home, title="Home", icon="🏠", default=True),
+        st.Page(page_pipeline, title="Pipeline", icon="📋"),
+        st.Page(page_analytics, title="Analytics", icon="📊"),
+    ],
+    "Opportunities": [
+        st.Page(page_opportunities, title="Opportunities", icon="🎯"),
+        st.Page(page_add, title="Add", icon="➕"),
+        st.Page(page_discover, title="Discover", icon="🔎"),
+        st.Page(page_prospecting, title="Prospecting", icon="🔭"),
+    ],
+    "Research & Apply": [
+        st.Page(page_professors, title="Professors", icon="👩‍🔬"),
+        st.Page(page_deep_research, title="Deep Research", icon="🔬"),
+        st.Page(page_apply, title="Apply", icon="📝"),
+        st.Page(page_approvals, title="Approvals", icon="✅"),
+    ],
+    "Setup": [
+        st.Page(page_profile, title="Profile", icon="🧑‍🎓"),
+        st.Page(page_documents, title="Documents", icon="📎"),
+        st.Page(page_settings, title="Settings", icon="⚙️"),
+    ],
+})
+_nav.run()

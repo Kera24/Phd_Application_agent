@@ -1,0 +1,10 @@
+# Dashboard theme. Streamlit Cloud reads this from the repo.
+[theme]
+primaryColor = "#4f46e5"
+backgroundColor = "#ffffff"
+secondaryBackgroundColor = "#f4f5fb"
+textColor = "#1f2430"
+font = "sans serif"
+
+[client]
+showErrorDetails = true
