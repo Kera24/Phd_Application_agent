@@ -662,18 +662,40 @@ def gmail_status() -> dict:
             "credentials_path": str(config_loader.abspath("gmail_credentials"))}
 
 
-@app.post("/gmail/authorize")
-def gmail_authorize() -> dict:
-    """Trigger the installed-app OAuth flow (opens a local consent window).
+def _gmail_redirect_uri() -> str:
+    import os
+    base = os.environ.get("PUBLIC_BASE_URL")
+    if not base:
+        raise HTTPException(400, "PUBLIC_BASE_URL is not set on the backend "
+                                 "(needed for the Gmail OAuth redirect).")
+    return base.rstrip("/") + "/gmail/callback"
 
-    For a desktop/local deployment this completes via google's local-server
-    callback; the token is then cached for reuse.
-    """
+
+@app.get("/gmail/authorize")
+def gmail_authorize() -> dict:
+    """Start the hosted web OAuth flow: return Google's consent URL to open."""
     try:
-        gmail_client.get_service()
-        return {"authorised": True}
+        url, _state = gmail_client.build_auth_url(_gmail_redirect_uri())
+        return {"auth_url": url}
+    except HTTPException:
+        raise
     except Exception as exc:
-        raise HTTPException(400, f"OAuth failed: {exc}")
+        raise HTTPException(400, f"could not start Gmail OAuth: {exc}")
+
+
+@app.get("/gmail/callback")
+def gmail_callback(code: str = "", state: str = "", error: str = ""):
+    """Google redirects here after consent; exchange the code and store the token."""
+    from fastapi.responses import HTMLResponse
+    if error:
+        return HTMLResponse(f"<h3>Gmail authorization failed: {error}</h3>")
+    try:
+        gmail_client.complete_auth(code, _gmail_redirect_uri())
+        return HTMLResponse(
+            "<h3>✅ Gmail connected.</h3><p>You can close this tab and return to "
+            "ScholarReach (refresh the Settings page).</p>")
+    except Exception as exc:
+        return HTMLResponse(f"<h3>Gmail connection failed:</h3><pre>{exc}</pre>")
 
 
 @app.get("/healthz")

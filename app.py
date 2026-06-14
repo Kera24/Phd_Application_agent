@@ -382,10 +382,16 @@ def page_settings():
 
     st.divider()
     st.subheader("Gmail")
-    st.write("Authorised ✅" if s["gmail_authorised"] else "Not authorised ❌")
-    if st.button("Authorise Gmail"):
-        api_post("/gmail/authorize")
-        st.rerun()
+    st.write("Connected ✅" if s["gmail_authorised"] else "Not connected ❌")
+    if not s["gmail_authorised"]:
+        if st.button("Connect Gmail"):
+            res = api_get("/gmail/authorize")
+            if res and res.get("auth_url"):
+                st.session_state["gmail_auth_url"] = res["auth_url"]
+        if st.session_state.get("gmail_auth_url"):
+            st.link_button("Open Google consent screen", st.session_state["gmail_auth_url"])
+            st.caption("Approve in the new tab, then return here and refresh. "
+                       "(Requires the backend's Google OAuth env vars — see DEPLOY.md.)")
 
 
 def page_documents():

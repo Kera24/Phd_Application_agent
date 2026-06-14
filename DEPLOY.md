@@ -64,7 +64,34 @@ endpoint is idempotent, so duplicate ticks are harmless.
 > been approved (reaching `scheduled`). In draft-only mode the tick reports
 > `sends.skipped` and never sends.
 
-## 4. Rotate / manage secrets
+## 4. Connect Gmail (web OAuth)
+
+The hosted app uses a redirect-based OAuth flow (the desktop flow can't work on a
+headless server). One-time setup in Google Cloud, then connect from the dashboard.
+
+1. **Google Cloud Console** (console.cloud.google.com) → create/select a project.
+2. **APIs & Services → Library → Gmail API → Enable.**
+3. **OAuth consent screen** → User type **External** → fill app name + your email →
+   add yourself under **Test users** → save. (Testing mode is fine for personal
+   use; the send/compose scopes work for test users without Google verification.)
+4. **Credentials → Create credentials → OAuth client ID** → Application type
+   **Web application** → under **Authorized redirect URIs** add exactly:
+   `https://scholarreach-backend.onrender.com/gmail/callback` → Create. Copy the
+   **Client ID** and **Client secret**.
+5. **Render → Environment**, add three vars:
+   - `GOOGLE_OAUTH_CLIENT_ID` = the client ID
+   - `GOOGLE_OAUTH_CLIENT_SECRET` = the client secret
+   - `PUBLIC_BASE_URL` = `https://scholarreach-backend.onrender.com` (must match the
+     redirect URI's host)
+   Save (redeploys).
+6. In the dashboard: **Settings → Connect Gmail → Open Google consent screen** →
+   approve in the new tab → return and refresh. The token is stored in your DB
+   (`gmail_tokens`, RLS on) and survives redeploys.
+
+> The redirect URI in Google Cloud and `PUBLIC_BASE_URL` must match your backend
+> exactly. If you use a custom domain, update both.
+
+## 5. Rotate / manage secrets
 
 - Set every secret in the **Render** and **Streamlit Cloud** dashboards — never commit them. `.mcp.json`, `gmail_credentials.json`, and `token.json` are git-ignored and excluded from the Docker image via `.dockerignore`.
 - After rotating the Supabase DB password, update `DATABASE_URL` in Render only.

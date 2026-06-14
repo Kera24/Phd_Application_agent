@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import base64
 import datetime as dt
+import json
+import os
 import time
 from email.message import EmailMessage
 from pathlib import Path
@@ -24,6 +26,11 @@ READONLY = "https://www.googleapis.com/auth/gmail.readonly"
 COMPOSE_SCOPES = ["https://www.googleapis.com/auth/gmail.compose"]
 SEND_SCOPES = ["https://www.googleapis.com/auth/gmail.compose",
                "https://www.googleapis.com/auth/gmail.send"]
+# Web OAuth requests the full set up front so toggling send/reply modes later
+# never needs a re-authorise.
+WEB_SCOPES = ["https://www.googleapis.com/auth/gmail.compose",
+              "https://www.googleapis.com/auth/gmail.send",
+              READONLY]
 
 
 class GmailNotAuthorised(RuntimeError):
@@ -42,40 +49,127 @@ def _scopes() -> list[str]:
     return scopes
 
 
+# --- token storage: DB first (hosted), on-disk file fallback (local dev) -----
+
+def _load_token_dict() -> Optional[dict]:
+    try:
+        from db import session as dbsession
+        from db.models import GmailToken
+        with dbsession.session_scope() as s:
+            row = s.get(GmailToken, 1)
+            if row and row.data:
+                return dict(row.data)
+    except Exception:
+        pass
+    token_path = config_loader.abspath("gmail_token")
+    if token_path.exists():
+        try:
+            return json.loads(token_path.read_text(encoding="utf-8"))
+        except Exception:
+            return None
+    return None
+
+
+def _save_token_dict(data: dict) -> None:
+    from db import session as dbsession
+    from db.models import GmailToken
+    with dbsession.session_scope() as s:
+        row = s.get(GmailToken, 1)
+        if row is None:
+            s.add(GmailToken(id=1, data=data))
+        else:
+            row.data = data
+        s.flush()
+
+
 def is_authorised() -> bool:
-    token = config_loader.abspath("gmail_token")
-    return token.exists()
+    return _load_token_dict() is not None
 
 
 def get_service():
-    """Build an authorised Gmail API service from a persisted token."""
+    """Build an authorised Gmail API service from the stored token.
+
+    Hosted: token comes from the DB (set by the web OAuth callback). Local dev
+    with no DB token falls back to the desktop installed-app flow.
+    """
     try:
         from google.oauth2.credentials import Credentials
-        from google_auth_oauthlib.flow import InstalledAppFlow
         from google.auth.transport.requests import Request
         from googleapiclient.discovery import build
     except ImportError as exc:  # pragma: no cover
         raise GmailNotAuthorised("Google API libraries not installed.") from exc
 
+    info = _load_token_dict()
+    if info:
+        creds = Credentials.from_authorized_user_info(info)
+        if not creds.valid:
+            if creds.expired and creds.refresh_token:
+                creds.refresh(Request())
+                _save_token_dict(json.loads(creds.to_json()))
+            else:
+                raise GmailNotAuthorised("Gmail token is invalid/expired — reconnect Gmail.")
+        return build("gmail", "v1", credentials=creds)
+    return _get_service_desktop()
+
+
+def _get_service_desktop():
+    """Local-only fallback: desktop OAuth flow (opens a browser on this machine)."""
+    from google.oauth2.credentials import Credentials
+    from google_auth_oauthlib.flow import InstalledAppFlow
+    from googleapiclient.discovery import build
+
     token_path = config_loader.abspath("gmail_token")
     creds_path = config_loader.abspath("gmail_credentials")
     scopes = _scopes()
-    creds = None
-    if token_path.exists():
-        creds = Credentials.from_authorized_user_file(str(token_path), scopes)
-    if not creds or not creds.valid:
-        if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-        else:
-            if not creds_path.exists():
-                raise GmailNotAuthorised(
-                    f"Missing OAuth client secrets at {creds_path}. "
-                    "Download from Google Cloud Console and place it there."
-                )
-            flow = InstalledAppFlow.from_client_secrets_file(str(creds_path), scopes)
-            creds = flow.run_local_server(port=0)
-        token_path.write_text(creds.to_json(), encoding="utf-8")
+    if not creds_path.exists():
+        raise GmailNotAuthorised(
+            "Gmail is not connected. On the hosted app use the Connect Gmail button "
+            "(web OAuth); locally, place OAuth client secrets at "
+            f"{creds_path} and authorise."
+        )
+    flow = InstalledAppFlow.from_client_secrets_file(str(creds_path), scopes)
+    creds = flow.run_local_server(port=0)
+    token_path.write_text(creds.to_json(), encoding="utf-8")
     return build("gmail", "v1", credentials=creds)
+
+
+# --- web OAuth (hosted): redirect flow ---------------------------------------
+
+def _web_client_config() -> dict:
+    """OAuth 'web' client config from env vars (preferred) or a secrets file."""
+    cid = os.environ.get("GOOGLE_OAUTH_CLIENT_ID")
+    csec = os.environ.get("GOOGLE_OAUTH_CLIENT_SECRET")
+    if cid and csec:
+        return {"web": {"client_id": cid, "client_secret": csec,
+                        "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+                        "token_uri": "https://oauth2.googleapis.com/token"}}
+    creds_path = config_loader.abspath("gmail_credentials")
+    if creds_path.exists():
+        data = json.loads(creds_path.read_text(encoding="utf-8"))
+        if "web" in data:
+            return data
+    raise GmailNotAuthorised(
+        "Set GOOGLE_OAUTH_CLIENT_ID and GOOGLE_OAUTH_CLIENT_SECRET (a Web OAuth "
+        "client from Google Cloud Console) on the backend.")
+
+
+def build_auth_url(redirect_uri: str) -> tuple[str, str]:
+    """Return (consent_url, state) for the user to approve in their own browser."""
+    from google_auth_oauthlib.flow import Flow
+    flow = Flow.from_client_config(_web_client_config(), scopes=WEB_SCOPES,
+                                   redirect_uri=redirect_uri)
+    return flow.authorization_url(access_type="offline",
+                                  include_granted_scopes="true", prompt="consent")
+
+
+def complete_auth(code: str, redirect_uri: str) -> bool:
+    """Exchange the OAuth code for a token and persist it (DB)."""
+    from google_auth_oauthlib.flow import Flow
+    flow = Flow.from_client_config(_web_client_config(), scopes=WEB_SCOPES,
+                                   redirect_uri=redirect_uri)
+    flow.fetch_token(code=code)
+    _save_token_dict(json.loads(flow.credentials.to_json()))
+    return True
 
 
 def build_message_from_fields(to: str, subject: str, body: str,

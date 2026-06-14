@@ -312,6 +312,21 @@ class ApplicantProfile(Base):
         DateTime, default=_utcnow, onupdate=_utcnow)
 
 
+class GmailToken(Base):
+    """Single-row store of the OAuth token (creds JSON) for hosted Gmail.
+
+    Persists across redeploys (Render's disk is ephemeral); RLS-protected. The
+    desktop/local flow still uses the on-disk token file as a fallback.
+    """
+
+    __tablename__ = "gmail_tokens"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    data: Mapped[Optional[dict]] = mapped_column(JSON)
+    updated_at: Mapped[dt.datetime] = mapped_column(
+        DateTime, default=_utcnow, onupdate=_utcnow)
+
+
 class Asset(Base):
     """Uploaded candidate documents (CV, transcript, base summary, SOP)."""
 
