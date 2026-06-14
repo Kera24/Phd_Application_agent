@@ -116,9 +116,11 @@ streamlit run app.py
 ```
 
 Dashboard pages: **Pipeline** (kanban by status), **Opportunities**,
-**Add Opportunity** (paste LinkedIn/URL), **Prospecting**, **Professors**,
-**Approvals** (the interrupt queue), **Settings** (send-mode toggle, daily cap,
-fit threshold).
+**Add Opportunity** (paste text *or upload an image/PDF*), **Discover**
+(proactive web search), **Prospecting**, **Professors**, **Profile** (your
+application details), **Documents** (CV/transcript/SOP/etc. uploads), **Apply**
+(application fill-plan + local fillers), **Approvals** (the interrupt queue),
+**Analytics**, **Settings** (send-mode toggle, daily cap, fit threshold).
 
 ## How the approval flow works
 
@@ -136,6 +138,39 @@ fit threshold).
    Mon–Thu 08:00–09:00 in the professor's local timezone (randomised minute,
    daily cap, pre-send dedupe + approval re-checks). Otherwise the email simply
    stays an approved Gmail draft.
+
+## Application fillers (local, never auto-submit)
+
+Two ways to fill an application form, both run on **your machine** in a visible
+browser and **stop for you to review and submit** — nothing is submitted
+automatically. Generate context from the **Apply** page (it shows the exact
+commands), then run one locally. Setup once:
+
+```bash
+pip install -r requirements-local.txt
+playwright install chromium
+```
+
+- **Option A — simple filler** (`scripts/fill_application.py`): uses the
+  server-built fill-plan (profile → form fields) and fills standard HTML inputs.
+  No LLM credits needed. Best for plain, static, publicly-reachable forms.
+
+  ```bash
+  python scripts/fill_application.py --api <backend> --opportunity <id> --cv cv.pdf
+  ```
+
+- **Option B — agentic browser** (`scripts/agent_fill.py`): a *browser harness*
+  where **Claude drives the browser** step-by-step, so it adapts to JavaScript /
+  multi-step portals the simple filler can't. Needs `ANTHROPIC_API_KEY` with
+  credits (uses many calls). The ~80–90% path — CAPTCHA, logins and exotic
+  widgets still need you (you handle them in the headed browser).
+
+  ```bash
+  python scripts/agent_fill.py --api <backend> --opportunity <id> --cv cv.pdf
+  ```
+
+Neither is a universal auto-applier: they accelerate filling and leave you in
+control of login, CAPTCHA, anything not in your profile, and the final submit.
 
 ## Configuration
 
