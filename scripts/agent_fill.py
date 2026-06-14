@@ -86,27 +86,41 @@ def build_task(profile: dict, opp: dict | None, url: str, available_docs: dict[s
     )
 
 
-async def run_agent(task: str, model: str, file_paths: list[str], max_steps: int) -> int:
-    try:
-        from browser_use import Agent
+def _agent_llm(model):
+    """Pick browser-use's OpenAI or Anthropic chat model from the env keys."""
+    if os.environ.get("OPENAI_API_KEY"):
+        try:
+            from browser_use import ChatOpenAI
+        except ImportError:
+            from browser_use.llm import ChatOpenAI
+        return ChatOpenAI(model=model or "gpt-4o"), "openai"
+    if os.environ.get("ANTHROPIC_API_KEY"):
         try:
             from browser_use import ChatAnthropic
-        except ImportError:  # older/newer layouts
+        except ImportError:
             from browser_use.llm import ChatAnthropic
+        return ChatAnthropic(model=model or "claude-sonnet-4-6"), "anthropic"
+    return None, None
+
+
+async def run_agent(task: str, model, file_paths: list[str], max_steps: int) -> int:
+    try:
+        from browser_use import Agent
     except ImportError:
         print("browser-use is not installed. Run:\n"
               "  pip install -r requirements-local.txt\n"
               "  playwright install chromium", file=sys.stderr)
         return 2
-    if not os.environ.get("ANTHROPIC_API_KEY"):
-        print("ANTHROPIC_API_KEY is not set (and needs credits).", file=sys.stderr)
+    llm, prov = _agent_llm(model)
+    if llm is None:
+        print("Set OPENAI_API_KEY or ANTHROPIC_API_KEY (with credits).", file=sys.stderr)
         return 2
 
     # NOTE: browser-use's API evolves quickly; if these kwargs error, check the
     # installed version's docs. We keep the call minimal for forward-compatibility.
-    agent = Agent(task=task, llm=ChatAnthropic(model=model),
-                  available_file_paths=file_paths or None)
-    print(f"Launching agent (model={model}). Watch the browser; handle login/CAPTCHA when asked.\n"
+    agent = Agent(task=task, llm=llm, available_file_paths=file_paths or None)
+    print(f"Launching agent (provider={prov}, model={model or 'default'}). "
+          "Watch the browser; handle login/CAPTCHA when asked.\n"
           ">>> It will NOT submit — it stops at the review screen for you.\n")
     await agent.run(max_steps=max_steps)
     print("\nAgent finished. Review the form in the browser and submit yourself if it looks correct.")
@@ -122,7 +136,8 @@ def main() -> int:
     ap.add_argument("--sop", default=None)
     ap.add_argument("--transcript", default=None)
     ap.add_argument("--summary", default=None)
-    ap.add_argument("--model", default=DEFAULT_MODEL, help=f"Claude model (default {DEFAULT_MODEL})")
+    ap.add_argument("--model", default=None,
+                    help="Model id (default: gpt-4o for OpenAI, claude-sonnet-4-6 for Anthropic)")
     ap.add_argument("--max-steps", type=int, default=40)
     args = ap.parse_args()
 

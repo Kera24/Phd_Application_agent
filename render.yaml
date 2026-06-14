@@ -20,8 +20,10 @@ services:
       # The app normalises postgres:// and postgresql:// to the psycopg driver automatically.
       - key: DATABASE_URL
         sync: false
-      # OPTIONAL: leave blank to use deterministic fallbacks (heuristic parser,
-      # template-fill drafts, quality-gate LLM judge skipped).
+      # OPTIONAL LLM keys: set EITHER for AI features (OpenAI is preferred when
+      # both are set). Leave both blank to use deterministic fallbacks.
+      - key: OPENAI_API_KEY
+        sync: false
       - key: ANTHROPIC_API_KEY
         sync: false
       # OPTIONAL: enables professor / opportunity discovery via Tavily.

@@ -17,23 +17,60 @@ class LLMUnavailable(RuntimeError):
     pass
 
 
-def _chat(model: str, max_tokens: int, temperature: float):
-    """Build a langchain-anthropic ChatAnthropic client (pinned LLM lib)."""
-    api_key = os.environ.get("ANTHROPIC_API_KEY")
-    if not api_key:
+def provider() -> Optional[str]:
+    """Which LLM backend to use: 'openai' if its key is set, else 'anthropic'.
+
+    Override with LLM_PROVIDER=openai|anthropic (only honoured if that key exists).
+    """
+    forced = os.environ.get("LLM_PROVIDER", "").lower().strip()
+    if forced == "openai" and os.environ.get("OPENAI_API_KEY"):
+        return "openai"
+    if forced == "anthropic" and os.environ.get("ANTHROPIC_API_KEY"):
+        return "anthropic"
+    if os.environ.get("OPENAI_API_KEY"):
+        return "openai"
+    if os.environ.get("ANTHROPIC_API_KEY"):
+        return "anthropic"
+    return None
+
+
+def available() -> bool:
+    return provider() is not None
+
+
+def _resolve_model(prov: str, requested: Optional[str]) -> str:
+    cfg = config_loader.config().get("llm", {})
+    if prov == "openai":
+        # ignore a Claude model id accidentally passed by a caller
+        if requested and not str(requested).startswith("claude"):
+            return requested
+        return os.environ.get("OPENAI_MODEL") or cfg.get("openai_model") or "gpt-4o"
+    if requested and str(requested).startswith("claude"):
+        return requested
+    return cfg.get("model", "claude-opus-4-8")
+
+
+def _chat(model: Optional[str], max_tokens: int, temperature: float):
+    """Build a langchain chat client for the active provider."""
+    prov = provider()
+    if prov is None:
         raise LLMUnavailable(
-            "ANTHROPIC_API_KEY not set. Set it in the environment to enable LLM calls."
+            "No LLM API key set. Set OPENAI_API_KEY or ANTHROPIC_API_KEY."
         )
+    resolved = _resolve_model(prov, model)
+    if prov == "openai":
+        try:
+            from langchain_openai import ChatOpenAI
+        except ImportError as exc:  # pragma: no cover
+            raise LLMUnavailable("langchain-openai not installed.") from exc
+        return ChatOpenAI(model=resolved, max_tokens=max_tokens, temperature=temperature,
+                          api_key=os.environ["OPENAI_API_KEY"])
     try:
         from langchain_anthropic import ChatAnthropic
     except ImportError as exc:  # pragma: no cover
         raise LLMUnavailable("langchain-anthropic not installed.") from exc
-    return ChatAnthropic(model=model, max_tokens=max_tokens, temperature=temperature,
-                         anthropic_api_key=api_key)
-
-
-def available() -> bool:
-    return bool(os.environ.get("ANTHROPIC_API_KEY"))
+    return ChatAnthropic(model=resolved, max_tokens=max_tokens, temperature=temperature,
+                         anthropic_api_key=os.environ["ANTHROPIC_API_KEY"])
 
 
 def complete(
@@ -47,7 +84,7 @@ def complete(
     """Return raw text completion via langchain-anthropic."""
     cfg = config_loader.config().get("llm", {})
     chat = _chat(
-        model or cfg.get("model", "claude-opus-4-8"),
+        model,  # provider-aware default resolved inside _chat
         max_tokens or cfg.get("max_tokens", 2000),
         cfg.get("temperature", 0.2) if temperature is None else temperature,
     )

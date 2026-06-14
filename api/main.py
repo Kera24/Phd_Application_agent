@@ -568,7 +568,8 @@ def status() -> dict:
     return {
         "postgres": dbsession.is_postgres(),
         "gmail_connected": gmail_client.is_authorised(),
-        "anthropic_key_set": llm.available(),
+        "llm_configured": llm.available(),
+        "llm_provider": llm.provider(),
         "tavily_enabled": bool(os.environ.get("TAVILY_API_KEY")),
         "cron_token_set": bool(os.environ.get("CRON_TOKEN")),
         "public_base_url_set": bool(os.environ.get("PUBLIC_BASE_URL")),

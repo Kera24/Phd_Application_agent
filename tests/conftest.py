@@ -13,9 +13,12 @@ from db import session as dbsession  # noqa: E402
 
 @pytest.fixture(autouse=True)
 def _isolate_from_real_db(monkeypatch):
-    # Tests must be hermetic: never let a configured Supabase/Postgres URL
-    # leak in — always use the per-test SQLite file.
+    # Tests must be hermetic: never let a configured Supabase/Postgres URL or a
+    # real LLM key leak in. Tests that want a provider set the key explicitly.
     monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("LLM_PROVIDER", raising=False)
 
 
 @pytest.fixture()

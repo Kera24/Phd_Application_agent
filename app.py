@@ -861,7 +861,9 @@ def page_home():
     row(s.get("postgres"), "Database (Supabase Postgres)", "backend not on Postgres")
     row(s.get("profile_complete"), "Profile (name + email)", "fill in the Profile page")
     row(bool(s.get("documents")), "Documents uploaded", "upload your CV/SOP on Documents")
-    row(s.get("anthropic_key_set"), "Anthropic key", "set ANTHROPIC_API_KEY in Render for AI features")
+    row(s.get("llm_configured"),
+        f"LLM key ({s.get('llm_provider') or 'none'})",
+        "set OPENAI_API_KEY or ANTHROPIC_API_KEY in Render for AI features")
     row(s.get("gmail_connected"), "Gmail connected", "connect on the Settings page")
     row(s.get("tavily_enabled"), "Web search (Tavily)", "set TAVILY_API_KEY to enable Discover")
     row(s.get("cron_token_set"), "Scheduled tasks", "set CRON_TOKEN + GitHub Actions secrets")
