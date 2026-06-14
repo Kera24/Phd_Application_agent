@@ -312,6 +312,22 @@ class ApplicantProfile(Base):
         DateTime, default=_utcnow, onupdate=_utcnow)
 
 
+class ApplicationTracking(Base):
+    """Per-opportunity application lifecycle status + notes (distinct from the
+    email pipeline status). One row per opportunity."""
+
+    __tablename__ = "application_tracking"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    opportunity_id: Mapped[int] = mapped_column(
+        ForeignKey("opportunities.id"), unique=True)
+    status: Mapped[str] = mapped_column(String(24), default="interested")
+    notes: Mapped[Optional[str]] = mapped_column(Text)
+    applied_at: Mapped[Optional[dt.datetime]] = mapped_column(DateTime)
+    updated_at: Mapped[dt.datetime] = mapped_column(
+        DateTime, default=_utcnow, onupdate=_utcnow)
+
+
 class GmailToken(Base):
     """Single-row store of the OAuth token (creds JSON) for hosted Gmail.
 

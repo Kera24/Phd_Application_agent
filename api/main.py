@@ -22,7 +22,8 @@ from pydantic import BaseModel
 
 from db import session as dbsession
 from db.models import (
-    Asset, Email, GeneratedDocument, Opportunity, Professor, ResearchBrief,
+    ApplicationTracking, Asset, Email, GeneratedDocument, Opportunity, Professor,
+    ResearchBrief,
 )
 from modules import config_loader, gmail_client
 
@@ -106,6 +107,15 @@ class DocumentsRequest(BaseModel):
 class DocumentUpdate(BaseModel):
     title: Optional[str] = None
     content: Optional[str] = None
+
+
+APPLICATION_STATUSES = ["interested", "preparing", "applied", "submitted",
+                        "interview", "offer", "rejected", "declined"]
+
+
+class ApplicationUpdate(BaseModel):
+    status: Optional[str] = None
+    notes: Optional[str] = None
 
 
 def _run_config(thread_id: str) -> dict:
@@ -419,6 +429,60 @@ def opportunities() -> dict:
             "deadline": o.deadline.isoformat() if o.deadline else None,
             "research_fields": o.research_fields,
         } for o in opps]}
+
+
+# --- application + deadline tracker -----------------------------------------
+@app.get("/applications")
+def list_applications() -> dict:
+    """Active opportunities with their application status + deadline, deadline-sorted."""
+    import datetime as _dt
+    today = _dt.date.today()
+    with dbsession.session_scope() as s:
+        opps = (s.query(Opportunity)
+                .filter(Opportunity.pipeline_status != "archived_not_funded").all())
+        tracking = {t.opportunity_id: t for t in s.query(ApplicationTracking).all()}
+        docs_on_file = sorted({a.kind for a in s.query(Asset).all()})
+        items = []
+        for o in opps:
+            t = tracking.get(o.id)
+            days_left = (o.deadline - today).days if o.deadline else None
+            items.append({
+                "opportunity_id": o.id, "title": o.position_title,
+                "professor_name": o.professor_name, "university": o.university,
+                "country": o.country, "fit_score": o.fit_score,
+                "deadline": o.deadline.isoformat() if o.deadline else None,
+                "days_left": days_left,
+                "status": t.status if t else "interested",
+                "notes": (t.notes if t else "") or "",
+                "required_documents": o.required_documents or [],
+            })
+    items.sort(key=lambda x: (x["days_left"] is None,
+                              x["days_left"] if x["days_left"] is not None else 0))
+    return {"applications": items, "statuses": APPLICATION_STATUSES,
+            "documents_on_file": docs_on_file}
+
+
+@app.put("/applications/{opp_id}")
+def update_application(opp_id: int, req: ApplicationUpdate) -> dict:
+    import datetime as _dt
+    with dbsession.session_scope() as s:
+        opp = s.get(Opportunity, opp_id)
+        if opp is None:
+            raise HTTPException(404, "unknown opportunity")
+        t = s.query(ApplicationTracking).filter_by(opportunity_id=opp_id).first()
+        if t is None:
+            t = ApplicationTracking(opportunity_id=opp_id)
+            s.add(t)
+        if req.status is not None:
+            if req.status not in APPLICATION_STATUSES:
+                raise HTTPException(400, f"status must be one of {APPLICATION_STATUSES}")
+            t.status = req.status
+            if req.status in ("applied", "submitted") and t.applied_at is None:
+                t.applied_at = _dt.datetime.now(_dt.timezone.utc)
+        if req.notes is not None:
+            t.notes = req.notes
+        s.flush()
+        return {"opportunity_id": opp_id, "status": t.status, "notes": t.notes or ""}
 
 
 @app.get("/status")

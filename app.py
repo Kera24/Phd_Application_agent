@@ -695,6 +695,49 @@ def page_deep_research():
             cc2.link_button("⬇ Download PDF", f"{API}/documents/{d['id']}/pdf")
 
 
+def page_tracker():
+    st.header("🗓 Application Tracker")
+    st.caption("Track each application's status and deadlines. Sorted by nearest deadline.")
+    data = api_get("/applications")
+    if not data:
+        return
+    apps = data["applications"]
+    statuses = data["statuses"]
+    if not apps:
+        st.info("No active opportunities yet. Add or discover some first.")
+        return
+    soon = [a for a in apps if a["days_left"] is not None and 0 <= a["days_left"] <= 14]
+    overdue = [a for a in apps if a["days_left"] is not None and a["days_left"] < 0]
+    m1, m2, m3 = st.columns(3)
+    m1.metric("Tracked", len(apps))
+    m2.metric("Due ≤14 days", len(soon))
+    m3.metric("Overdue", len(overdue))
+    st.divider()
+
+    for a in apps:
+        dl = a["days_left"]
+        badge = ""
+        if dl is not None:
+            badge = (f"🔴 {abs(dl)}d overdue" if dl < 0
+                     else f"🟠 {dl}d left" if dl <= 14 else f"🟢 {dl}d left")
+        title = a["title"] or a["professor_name"] or f"#{a['opportunity_id']}"
+        oid = a["opportunity_id"]
+        with st.expander(f"{title} — {a['university'] or ''}   {badge}  ·  [{a['status']}]"):
+            c1, c2 = st.columns(2)
+            idx = statuses.index(a["status"]) if a["status"] in statuses else 0
+            new_status = c1.selectbox("Status", statuses, index=idx, key=f"st_{oid}")
+            c2.write(f"**Deadline:** {a['deadline'] or '—'}"
+                     + (f" · fit {a['fit_score']}" if a.get("fit_score") is not None else ""))
+            if a.get("required_documents"):
+                st.caption("Required documents: " + ", ".join(a["required_documents"]))
+            notes = st.text_area("Notes", a.get("notes") or "", key=f"nt_{oid}", height=80)
+            if st.button("💾 Save", key=f"sv_{oid}"):
+                if api_put(f"/applications/{oid}", {"status": new_status, "notes": notes}):
+                    st.success("Saved.")
+                    st.rerun()
+    st.caption("Documents on file: " + (", ".join(data.get("documents_on_file", [])) or "none"))
+
+
 def page_home():
     st.header("🏠 ScholarReach")
     st.caption("Your PhD outreach + application assistant.")
@@ -745,6 +788,7 @@ _nav = st.navigation({
         st.Page(page_add, title="Add", icon="➕"),
         st.Page(page_discover, title="Discover", icon="🔎"),
         st.Page(page_prospecting, title="Prospecting", icon="🔭"),
+        st.Page(page_tracker, title="Tracker", icon="🗓"),
     ],
     "Research & Apply": [
         st.Page(page_professors, title="Professors", icon="👩‍🔬"),
