@@ -1,5 +1,6 @@
 # Dashboard theme. Streamlit Cloud reads this from the repo.
 [theme]
+base = "light"
 primaryColor = "#4f46e5"
 backgroundColor = "#ffffff"
 secondaryBackgroundColor = "#f4f5fb"

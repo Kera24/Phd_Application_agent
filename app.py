@@ -25,6 +25,29 @@ st.markdown(
       [data-testid="stMetricValue"] { font-size: 1.6rem; }
       .stButton > button { border-radius: 8px; }
       [data-testid="stExpander"] { border-radius: 10px; }
+
+      /* Make form fields clearly visible (fixes white-on-white inputs,
+         e.g. when the browser/OS is in dark mode). */
+      .stTextInput input, .stTextArea textarea, .stNumberInput input,
+      .stDateInput input, .stChatInput textarea,
+      [data-baseweb="input"], [data-baseweb="base-input"],
+      [data-baseweb="textarea"], [data-baseweb="select"] > div {
+        background-color: #ffffff !important;
+        color: #1f2430 !important;
+        border: 1px solid #c8ccd9 !important;
+        border-radius: 8px;
+      }
+      .stTextInput input, .stTextArea textarea, .stNumberInput input,
+      .stDateInput input { border: none !important; }
+      .stTextInput input::placeholder, .stTextArea textarea::placeholder {
+        color: #8b90a0 !important;
+      }
+      [data-baseweb="select"] div, [data-baseweb="select"] span { color: #1f2430 !important; }
+      label, .stMarkdown, [data-testid="stWidgetLabel"] { color: #1f2430 !important; }
+      /* Dropdown menu popovers */
+      [data-baseweb="popover"] [role="option"] {
+        background-color: #ffffff !important; color: #1f2430 !important;
+      }
     </style>
     """,
     unsafe_allow_html=True,
