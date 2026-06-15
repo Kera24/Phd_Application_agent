@@ -625,6 +625,31 @@ def get_deep_research(opp_id: int) -> dict:
         return {"opportunity_id": opp_id, "brief": row.data if row else None}
 
 
+@app.get("/opportunities/{opp_id}/deep-research/pdf")
+def deep_research_pdf(opp_id: int):
+    """Render the deep-research dossier to PDF and stream it."""
+    import os
+    import tempfile
+    from fastapi.responses import FileResponse
+    from modules import documents
+    with dbsession.session_scope() as s:
+        row = (s.query(ResearchBrief).filter_by(opportunity_id=opp_id)
+               .order_by(ResearchBrief.id.desc()).first())
+        data = (row.data if row else None) or {}
+        content = data.get("dossier_md")
+        opp = s.get(Opportunity, opp_id)
+        prof_name = (opp.professor_name if opp else None) or "professor"
+    if not content:
+        raise HTTPException(404, "no dossier yet — run deep research first")
+    title = f"Lab Scout dossier — {prof_name}"
+    out = os.path.join(tempfile.gettempdir(), f"dossier_{opp_id}.pdf")
+    try:
+        documents.render_document_pdf(title, content, out)
+    except Exception as exc:
+        raise HTTPException(500, f"PDF render failed (WeasyPrint system libs?): {exc}")
+    return FileResponse(out, media_type="application/pdf", filename=f"dossier_{opp_id}.pdf")
+
+
 @app.post("/opportunities/{opp_id}/documents")
 def generate_documents_ep(opp_id: int, req: DocumentsRequest) -> dict:
     from modules import documents

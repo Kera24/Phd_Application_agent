@@ -68,6 +68,12 @@ llm:
   max_tokens: 2000
   temperature: 0.2
 
+# --- Deep "Lab Scout" research ----------------------------------------------
+deep_research:
+  paper_limit: 18                # recent papers pulled for the deep dive (~last 2 yrs)
+  web_search: true               # kill-switch: off -> crawl-only (no live web search)
+  web_search_max_uses: 8         # max Claude web searches per dossier call
+
 # --- Fit scoring ------------------------------------------------------------
 fit_score_threshold: 50          # below this -> parked in dashboard, no email
 highlight_threshold: 70

@@ -98,6 +98,69 @@ def complete(
     return resp.content if isinstance(resp.content, str) else str(resp.content)
 
 
+def research_with_search(
+    prompt: str,
+    *,
+    system: Optional[str] = None,
+    model: Optional[str] = None,
+    max_uses: int = 8,
+    max_tokens: int = 4000,
+) -> dict:
+    """Run a grounded research turn with Claude's server-side web search tool.
+
+    Anthropic-only: web search is not a portable feature, so this always uses the
+    raw ``anthropic`` SDK and ``ANTHROPIC_API_KEY`` regardless of the configured
+    provider. Claude performs the searches server-side (up to ``max_uses``) and
+    returns a final answer; we collect the text plus the source URLs it consulted.
+
+    Returns ``{"text": str, "sources": [{"url", "title"}...]}``.
+    Raises ``LLMUnavailable`` if no Anthropic key / SDK — callers MUST wrap this
+    so the deep-research flow degrades to the crawl-only path.
+    """
+    if not os.environ.get("ANTHROPIC_API_KEY"):
+        raise LLMUnavailable("Web search needs ANTHROPIC_API_KEY (Anthropic-only feature).")
+    try:
+        import anthropic
+    except ImportError as exc:  # pragma: no cover
+        raise LLMUnavailable("anthropic SDK not installed.") from exc
+
+    cfg = config_loader.config().get("llm", {})
+    resolved = model if (model and str(model).startswith("claude")) else cfg.get("model", "claude-opus-4-8")
+    client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
+    try:
+        resp = client.messages.create(
+            model=resolved,
+            max_tokens=max_tokens,
+            system=system or "You are a precise research assistant. Never fabricate facts.",
+            tools=[{"type": "web_search_20250305", "name": "web_search", "max_uses": max_uses}],
+            messages=[{"role": "user", "content": prompt}],
+        )
+    except Exception as exc:  # auth error, rate limit, network, fake test key, …
+        raise LLMUnavailable(f"web search call failed: {exc}") from exc
+
+    text_parts: list[str] = []
+    sources: list[dict] = []
+    seen: set[str] = set()
+
+    def _add_source(url: Optional[str], title: Optional[str]) -> None:
+        if url and url not in seen:
+            seen.add(url)
+            sources.append({"url": url, "title": (title or "").strip()})
+
+    for block in resp.content or []:
+        btype = getattr(block, "type", None)
+        if btype == "text":
+            text_parts.append(getattr(block, "text", "") or "")
+            # Inline citations attached to a text block (when present).
+            for cit in getattr(block, "citations", None) or []:
+                _add_source(getattr(cit, "url", None), getattr(cit, "title", None))
+        elif btype == "web_search_tool_result":
+            for item in getattr(block, "content", None) or []:
+                _add_source(getattr(item, "url", None), getattr(item, "title", None))
+
+    return {"text": "\n".join(p for p in text_parts if p).strip(), "sources": sources}
+
+
 def complete_json(
     prompt: str,
     *,

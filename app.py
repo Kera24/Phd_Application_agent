@@ -741,10 +741,18 @@ def page_deep_research():
     label = st.selectbox("Opportunity", list(options.keys()))
     oid = options[label]["id"]
 
-    if st.button("🔬 Run deep research"):
-        with st.spinner("Researching (papers + professor pages)…"):
+    c_scout, c_all = st.columns(2)
+    if c_scout.button("🔬 Scout this lab (deep)"):
+        with st.spinner("Scouting (papers + web search: site, Scholar, talks, news)…"):
             res = api_post(f"/opportunities/{oid}/deep-research", {})
         st.session_state[f"brief_{oid}"] = res.get("brief") if res else None
+    if c_all.button("🚀 Scout & draft everything"):
+        with st.spinner("Scouting, then drafting all documents…"):
+            res = api_post(f"/opportunities/{oid}/deep-research", {})
+            st.session_state[f"brief_{oid}"] = res.get("brief") if res else None
+            api_post(f"/opportunities/{oid}/documents",
+                     {"kinds": ["email", "sop", "cover", "proposal"]})
+        st.success("Dossier + all documents ready below.")
 
     brief = st.session_state.get(f"brief_{oid}")
     if brief is None:
@@ -752,27 +760,62 @@ def page_deep_research():
         brief = got.get("brief") if got else None
 
     if not brief:
-        st.info("No research brief yet — run deep research above.")
+        st.info("No dossier yet — scout the lab above.")
         return
 
-    st.subheader("Research brief")
-    if brief.get("themes"):
-        st.write("**Themes:** " + ", ".join(brief["themes"]))
-    st.write(f"**Gap:** {brief.get('chosen_gap')}")
-    st.write(f"**Research question:** {brief.get('research_question')}")
-    st.write(f"**Proposed approach:** {brief.get('proposed_approach')}")
-    if brief.get("rationale"):
-        st.caption(brief["rationale"])
+    if brief.get("method") == "keyless":
+        st.warning("Generated without an LLM — add Anthropic credits for real depth "
+                   "(web search needs an Anthropic key).")
+    elif not (brief.get("sources_used") or {}).get("web_searched"):
+        st.caption("ℹ️ Crawl-only dossier (live web search was off/unavailable).")
+
+    # Full markdown dossier (the comprehensive document).
+    if brief.get("dossier_md"):
+        st.markdown(brief["dossier_md"])
+        st.link_button("⬇ Download dossier PDF",
+                       f"{API}/opportunities/{oid}/deep-research/pdf")
+    else:
+        # Fallback rendering for older briefs without dossier_md.
+        st.subheader("Research brief")
+        st.write(f"**Gap:** {brief.get('chosen_gap')}")
+        st.write(f"**Research question:** {brief.get('research_question')}")
+        st.write(f"**Proposed approach:** {brief.get('proposed_approach')}")
+
+    with st.expander("Structured proposal (problem → approaches → gap → extension)"):
+        if brief.get("problem_statement"):
+            st.write(f"**Problem statement:** {brief['problem_statement']}")
+        if brief.get("current_approaches"):
+            st.write("**Current approaches:**")
+            for a in brief["current_approaches"]:
+                ref = f" _(ref: {a.get('citation')})_" if a.get("citation") else ""
+                st.write(f"- {a.get('approach')}{ref}")
+        if brief.get("the_gap"):
+            st.write(f"**The gap:** {brief['the_gap']}")
+        if brief.get("research_question"):
+            st.write(f"**Research question:** {brief['research_question']}")
+        if brief.get("proposed_approach"):
+            st.write(f"**Proposed approach:** {brief['proposed_approach']}")
+        if brief.get("proposed_extension"):
+            st.write(f"**Taking it further:** {brief['proposed_extension']}")
+        if brief.get("pitch"):
+            st.info(f"**Pitch:** {brief['pitch']}")
+
+    if brief.get("future_directions"):
+        with st.expander("Stated future directions"):
+            for d in brief["future_directions"]:
+                st.write(f"- {d}")
+    if brief.get("talks"):
+        with st.expander("Recent talks & activity"):
+            for t in brief["talks"]:
+                st.write(f"- {t}")
     if brief.get("candidate_gaps"):
         with st.expander("Candidate gaps considered"):
             for g in brief["candidate_gaps"]:
                 st.write(f"- {g.get('gap')}")
-    if brief.get("citations"):
-        with st.expander("Cited papers (verified)"):
-            for c in brief["citations"]:
-                st.write(f"- {c.get('title')} ({c.get('year')})")
-    if brief.get("method") == "keyless":
-        st.warning("Generated without an LLM — add Anthropic credits for real depth.")
+    if brief.get("sources"):
+        with st.expander("Web sources"):
+            for srx in brief["sources"]:
+                st.write(f"- [{srx.get('title') or srx.get('url')}]({srx.get('url')})")
 
     st.divider()
     st.subheader("Generate documents")
