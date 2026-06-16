@@ -100,6 +100,11 @@ class DiscoverRunRequest(BaseModel):
     url: str
 
 
+class AutoApplyRequest(BaseModel):
+    url: Optional[str] = None         # a posting link, OR
+    text: Optional[str] = None        # pasted posting / job description
+
+
 class DocumentsRequest(BaseModel):
     kinds: list[str] = ["email", "sop", "cover", "proposal"]
 
@@ -149,6 +154,57 @@ def start_run(req: RunRequest) -> dict:
         PENDING[thread_id] = payload
         return {"thread_id": thread_id, "status": "awaiting_approval", "interrupt": payload}
     return {"thread_id": thread_id, "status": "completed"}
+
+
+def _finish_auto_apply(result: dict) -> dict:
+    """After a run reaches approval, generate the listing's application documents.
+
+    Builds a (cheap) skim research brief grounded in the same gap the email used,
+    then generates exactly the documents the posting asks for (SOP / motivation /
+    cover / research proposal). The outreach email itself is the pipeline Email and
+    is handled by the approval queue — only the extra documents are produced here.
+    Best-effort: a document-generation failure never breaks the run.
+    """
+    if result.get("status") != "awaiting_approval":
+        return result
+    payload = result.get("interrupt") or {}
+    opp_id = payload.get("opportunity_id")
+    if not opp_id:
+        return result
+    from modules import deep_research as dr, documents
+    try:
+        with dbsession.session_scope() as s:
+            opp = s.get(Opportunity, opp_id)
+            if opp is None:
+                return result
+            dr.skim_brief(s, opp)
+            kinds = documents.kinds_for_opportunity(opp)
+            docs = documents.generate_documents(s, opp, kinds) if kinds else []
+        result["opportunity_id"] = opp_id
+        result["generated_documents"] = [
+            {"id": d["id"], "kind": d["kind"], "title": d["title"]} for d in docs]
+    except Exception as exc:  # don't lose the email draft over a doc failure
+        result["opportunity_id"] = opp_id
+        result["generated_documents"] = []
+        result["documents_error"] = str(exc)
+    return result
+
+
+@app.post("/auto-apply")
+def auto_apply(req: AutoApplyRequest) -> dict:
+    """One-shot direct apply: a posting link OR pasted text -> research + email +
+    the listing's application documents, all parked in the approval queue."""
+    from modules import discovery
+    text = (req.text or "").strip()
+    if not text and req.url:
+        text = discovery.fetch_page_text(req.url) or ""
+    if not text.strip():
+        raise HTTPException(
+            422, "Provide posting text, or a URL we can fetch (it may be blocked by robots.txt).")
+    result = _finish_auto_apply(start_run(RunRequest(linkedin_inputs=[text])))
+    if req.url:
+        result["source_url"] = req.url
+    return result
 
 
 @app.post("/opportunities/ingest-file")
@@ -201,7 +257,7 @@ def ingest_file(file: UploadFile = File(...)) -> dict:
     if not text.strip():
         raise HTTPException(422, f"No text could be extracted from {fname!r}.")
 
-    result = start_run(RunRequest(linkedin_inputs=[text]))
+    result = _finish_auto_apply(start_run(RunRequest(linkedin_inputs=[text])))
     result["extraction"] = {"method": method, "char_count": len(text)}
     return result
 

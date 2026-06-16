@@ -318,6 +318,7 @@ def approval_node(state: dict) -> dict:
         prof = email.professor
         payload = {
             "email_id": email.id,
+            "opportunity_id": opp.id if opp else None,
             "subject": email.subject,
             "body": email.body,
             "attachments": email.attachments,

@@ -19,6 +19,40 @@ from modules import config_loader, llm
 
 DOC_KINDS = ("email", "sop", "cover", "proposal")
 
+# Map keywords found in a posting's required_documents -> a generated doc kind.
+# Order matters: more specific phrases first. `email` is never produced here (the
+# sendable outreach email is a pipeline Email, not a GeneratedDocument).
+_REQUIRED_DOC_PATTERNS = (
+    ("research proposal", "proposal"),
+    ("research statement", "proposal"),
+    ("research plan", "proposal"),
+    ("proposal", "proposal"),
+    ("statement of purpose", "sop"),
+    ("personal statement", "sop"),
+    ("sop", "sop"),
+    ("letter of motivation", "cover"),
+    ("motivation letter", "cover"),
+    ("motivation", "cover"),
+    ("cover letter", "cover"),
+)
+
+
+def kinds_for_opportunity(opp: Opportunity) -> list[str]:
+    """Which application documents the listing asks for (excluding the email).
+
+    Reads ``opp.required_documents`` (free-text strings parsed from the posting)
+    and maps them to generated doc kinds. Returns a de-duplicated list preserving
+    the canonical sop -> cover -> proposal order. Empty / unspecified -> ``[]``.
+    """
+    wanted: set[str] = set()
+    for item in (opp.required_documents or []):
+        text = str(item).lower()
+        for keyword, kind in _REQUIRED_DOC_PATTERNS:
+            if keyword in text:
+                wanted.add(kind)
+                break
+    return [k for k in ("sop", "cover", "proposal") if k in wanted]
+
 _TITLES = {
     "email": "Outreach email",
     "sop": "Statement of Purpose",

@@ -254,6 +254,54 @@ def _keyless_brief(name: str, papers: list[dict]) -> dict:
     return brief
 
 
+def skim_brief(session: Session, opp: Opportunity) -> dict:
+    """Cheap brief for the direct *auto-apply* path — no web search, no extra LLM call.
+
+    Reuses the gap/angle/themes the graph's research_node already produced (via
+    prof_research.research_professor) so the auto-generated SOP/cover/proposal are
+    grounded in the SAME gap the outreach email used. If a richer ResearchBrief
+    already exists (e.g. from a deep scout), keep it untouched and return it.
+    """
+    existing = (session.query(ResearchBrief).filter_by(opportunity_id=opp.id)
+                .order_by(ResearchBrief.id.desc()).first())
+    if existing and existing.data:
+        return existing.data
+
+    prof = session.get(Professor, opp.professor_id) if opp.professor_id else None
+    papers = (prof.recent_papers if prof else None) or []
+    gap = (prof.identified_gap if prof else None) or ""
+    angle = (prof.proposed_angle if prof else None) or ""
+    name = (prof.name if prof else opp.professor_name) or ""
+
+    brief = {
+        "themes": (prof.research_themes if prof else []) or [],
+        "paper_notes": [],
+        "candidate_gaps": [],
+        "chosen_gap": gap or None,
+        "research_question": (f"How can the applicant's background address: {gap}"
+                              if gap else None),
+        "problem_statement": None,
+        "current_approaches": [],
+        "the_gap": gap or None,
+        "proposed_approach": angle or None,
+        "proposed_extension": None,
+        "pitch": None,
+        "talks": [],
+        "future_directions": [],
+        "paper_deep_dive": [],
+        "rationale": "Skim brief for direct application (no deep scout).",
+        "citations": papers[:3],
+        "sources": [],
+        "sources_used": {"papers": len(papers), "pages": False, "web_searched": False},
+        "method": "skim",
+    }
+    brief["dossier_md"] = _build_dossier_md(name, brief, "")
+    session.add(ResearchBrief(opportunity_id=opp.id,
+                              professor_id=prof.id if prof else None, data=brief))
+    session.flush()
+    return brief
+
+
 def run_deep_research(session: Session, opp: Opportunity, *,
                       paper_limit: Optional[int] = None) -> dict:
     """Run the deep-research workflow for an opportunity; persist + return the brief."""

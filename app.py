@@ -277,45 +277,55 @@ def page_opportunities():
 
 
 def _show_run_result(res):
-    """Render the outcome of a pipeline run (shared by text + file intake)."""
+    """Render the outcome of an auto-apply run (shared by link/text + file intake)."""
     if not res:
         return
     extr = res.get("extraction")
     if extr:
         st.caption(f"Extracted via **{extr['method']}** ({extr['char_count']} chars).")
     if res.get("status") == "awaiting_approval":
-        st.success(f"Draft ready for approval (thread {res['thread_id']}). "
-                   "See the Approvals page.")
+        docs = res.get("generated_documents") or []
+        bundle = "outreach email"
+        if docs:
+            bundle += " + " + ", ".join(d["title"].split(" — ")[0] for d in docs)
+        st.success(f"✅ Drafted **{bundle}** — waiting in **Approvals** (✅ in the sidebar).")
+        if res.get("documents_error"):
+            st.caption(f"⚠️ Some documents were skipped: {res['documents_error']}")
     else:
-        st.info("Run completed. Opportunity archived or parked "
+        st.info("Run completed without a draft. The opportunity was archived or parked "
                 "(not fully funded / below fit threshold / needs review). "
                 "Check Opportunities & Pipeline.")
 
 
 def page_add():
-    st.header("➕ Add Opportunity")
-    tab_text, tab_file = st.tabs(["📝 Paste text", "🖼 Upload image / PDF"])
+    st.header("➕ Add Opportunity — Auto-apply")
+    st.caption("Give me a posting **link** or paste the **job description**. I research the "
+               "professor, find a gap, draft the outreach email, and generate exactly the "
+               "documents the listing asks for (SOP / motivation / cover / research proposal) "
+               "— then park it all in **Approvals** for your review. Approve → it sends.")
 
-    with tab_text:
-        st.caption("Paste a LinkedIn post / posting text. It runs the full graph; "
-                   "fully funded ones reach the approval queue, others are archived.")
-        raw = st.text_area("Posting text", height=220)
-        if st.button("Run pipeline"):
-            if not raw.strip():
-                st.warning("Paste some text first.")
-            else:
-                _show_run_result(api_post("/runs", {"linkedin_inputs": [raw]}))
+    src = st.text_area("Posting link or job description", height=200,
+                       placeholder="https://…  — or paste the full posting text here")
+    if st.button("🚀 Auto-apply", type="primary"):
+        if not src.strip():
+            st.warning("Paste a link or the posting text first.")
+        else:
+            payload = ({"url": src.strip()}
+                       if src.strip().lower().startswith("http") and "\n" not in src.strip()
+                       else {"text": src})
+            with st.spinner("Researching, drafting the email + documents…"):
+                _show_run_result(api_post("/auto-apply", payload))
 
-    with tab_file:
-        st.caption("Upload a screenshot/photo of a posting or a PDF flyer. Text PDFs "
-                   "are read directly; images and scanned PDFs are transcribed with "
-                   "Claude vision (needs Anthropic credits). Then the same pipeline runs.")
-        up = st.file_uploader("Posting image or PDF",
-                              type=["png", "jpg", "jpeg", "webp", "gif", "pdf"],
-                              key="ingest_file")
-        if up is not None and st.button("Extract & run pipeline"):
-            with st.spinner("Extracting text and running the pipeline…"):
-                _show_run_result(api_post_file("/opportunities/ingest-file", None, up))
+    st.divider()
+    st.caption("📎 Or upload a screenshot/photo of a posting or a PDF flyer. Text PDFs are "
+               "read directly; images and scanned PDFs are transcribed with Claude vision. "
+               "Then the same auto-apply flow runs.")
+    up = st.file_uploader("Posting image or PDF",
+                          type=["png", "jpg", "jpeg", "webp", "gif", "pdf"],
+                          key="ingest_file")
+    if up is not None and st.button("Extract & auto-apply"):
+        with st.spinner("Extracting text, then researching + drafting…"):
+            _show_run_result(api_post_file("/opportunities/ingest-file", None, up))
 
 
 def page_prospecting():
@@ -352,6 +362,27 @@ def page_professors():
                          f"[{paper.get('url')}]({paper.get('url')})")
 
 
+def _send_gate_banner():
+    """Show whether an approved email will actually send, with one-click enable."""
+    settings = api_get("/settings") or {}
+    send_on = settings.get("approved_send_mode")
+    gmail_on = settings.get("gmail_authorised")
+    if send_on and gmail_on:
+        st.success("📤 Sending is **ON** and Gmail is connected — approving will schedule the send.")
+        return
+    if send_on and not gmail_on:
+        st.warning("📤 Sending is ON but **Gmail isn't connected** — connect it on the "
+                   "Settings page so approved emails can go out.")
+        return
+    cols = st.columns([3, 1])
+    cols[0].warning("🛑 Sending is **OFF** (safety). Approving will record your decision but "
+                    "won't send. Enable sending to make Approve → send work.")
+    if cols[1].button("Enable sending", key="enable_send"):
+        if api_put("/settings", {"approved_send_mode": True}):
+            st.success("Sending enabled.")
+            st.rerun()
+
+
 def page_approvals():
     st.header("✅ Approvals — Human-in-the-loop queue")
     data = api_get("/approvals")
@@ -361,6 +392,7 @@ def page_approvals():
     if not pending:
         st.info("No drafts awaiting approval.")
         return
+    _send_gate_banner()
     for item in pending:
         kind = item.get("kind", "interrupt")
         if kind == "followup":
@@ -380,6 +412,19 @@ def _render_interrupt_approval(item):
         st.write("**Verified papers:**")
         for paper in (prof.get("papers") or []):
             st.write(f"- {paper['title']} ({paper.get('year')})")
+
+        # Application documents the listing asked for (generated alongside the email).
+        oid = intr.get("opportunity_id")
+        if oid:
+            docs = (api_get(f"/opportunities/{oid}/documents") or {}).get("documents", [])
+            docs = [d for d in docs if d.get("kind") != "email"]
+            if docs:
+                st.write("**Application documents drafted:**")
+                for d in docs:
+                    dc1, dc2 = st.columns([3, 1])
+                    dc1.write(f"- 📄 {d['title']}")
+                    dc2.link_button("⬇ PDF", f"{API}/documents/{d['id']}/pdf")
+
         report = intr.get("quality_report") or {}
         st.caption(f"Quality gate: {'✅ passed' if report.get('passed') else '❌'}")
         subject = st.text_input("Subject", intr["subject"], key=f"s_{tid}")
