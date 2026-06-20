@@ -65,12 +65,25 @@ def api_get(path: str):
 
 
 def api_post(path: str, json=None):
+    r = None  # ensure `r` is defined for the except block even on network errors
     try:
         r = requests.post(f"{API}{path}", json=json or {}, timeout=600)
         r.raise_for_status()
         return r.json()
     except Exception as exc:
         st.error(f"POST {path} failed: {exc}")
+        # Surface the backend's response body so we can tell apart a Pydantic
+        # validation 422 ({"detail":[{"loc":...,"msg":...}]}) from the handler's
+        # own HTTPException(422, "Provide posting text...") and from network errors.
+        if r is not None:
+            st.error(f"  Status: {r.status_code}")
+            st.error(f"  Response body: {r.text!r}")
+            try:
+                st.error(f"  Response JSON: {r.json()}")
+            except Exception:
+                pass
+        else:
+            st.error(f"  No response object (network error: {exc!r})")
         return None
 
 
