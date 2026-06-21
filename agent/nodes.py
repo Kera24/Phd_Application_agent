@@ -254,6 +254,9 @@ def gmail_draft_node(state: dict) -> dict:
     """Create a Gmail draft when possible; otherwise leave it for approval time.
 
     Either way the email stays in 'awaiting_review' for the Human Approval node.
+    In reactive mode we deliberately route past the quality gate; the email may
+    still be in 'draft_created' here, so we explicitly transition it so the
+    approval interrupt picks it up.
     """
     oid = state["opportunity_id"]
     with dbsession.session_scope() as s:
@@ -261,6 +264,9 @@ def gmail_draft_node(state: dict) -> dict:
         repo.set_tracker(s, opp, "awaiting_approval")
         email = (s.query(Email).filter_by(opportunity_id=oid)
                  .order_by(Email.id.desc()).first())
+        if email and email.status not in ("awaiting_review", "sent", "cancelled"):
+            tracker.transition(s, email, "awaiting_review",
+                               {"reason": "reactive: forced past quality gate"})
         draft_id = None
         if email and gmail_client.is_authorised():
             try:
