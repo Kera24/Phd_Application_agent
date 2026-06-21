@@ -90,7 +90,12 @@ def test_auto_apply_requires_input(client):
 
 
 def test_auto_apply_text_runs_pipeline(client, monkeypatch):
-    """Keyless run: unfunded posting is archived, but the endpoint resolves cleanly."""
+    """Keyless run: unfunded posting is archived, but the endpoint resolves cleanly.
+
+    /auto-apply always sets run_mode='reactive' so the funding gate is bypassed.
+    We assert the run completes (either awaiting_approval or completed) and does
+    NOT block on the no-funding signal.
+    """
     from api import main
     from modules import discovery
     monkeypatch.setattr(discovery, "fetch_page_text", lambda url, **k: "")
@@ -98,8 +103,26 @@ def test_auto_apply_text_runs_pipeline(client, monkeypatch):
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["status"] in ("awaiting_approval", "completed")
-    # No funding -> archived -> no approval interrupt -> no generated documents.
     assert "thread_id" in body
+
+
+def test_runs_endpoint_proactive_keeps_funding_gate(client, monkeypatch):
+    """Legacy /runs without run_mode: no funding signal -> archived, no draft.
+
+    The /runs endpoint is the proactive/discovered path. Explicit funding
+    absence must still park the opportunity (the user did not submit this
+    themselves; the system found it). This guards the gate from being
+    accidentally bypassed for the autonomous path.
+    """
+    from modules import discovery
+    monkeypatch.setattr(discovery, "fetch_page_text", lambda url, **k: "")
+    r = client.post("/runs", json={"linkedin_inputs": ["Self-funded PhD, no stipend."]})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    # Proactive path with no funding -> archived before drafting -> completed
+    # with no interrupt. This is the behaviour that changed for reactive paths.
+    assert body["status"] == "completed"
+    assert "interrupt" not in body
 
 
 def test_auto_apply_url_fetch_failure(client, monkeypatch):

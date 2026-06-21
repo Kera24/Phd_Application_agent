@@ -128,6 +128,27 @@ def test_non_funded_post_archived_no_interrupt(graph_env):
         assert s.query(Email).count() == 0
 
 
+def test_reactive_non_funded_post_drafts_anyway(graph_env):
+    """run_mode='reactive' bypasses the funding gate; an explicit submission
+    even with no funding signal should reach the Human Approval interrupt
+    (i.e. produce a draft for the user to review in Approvals)."""
+    g = graph_env
+    cfg = {"configurable": {"thread_id": "tE"}, "recursion_limit": 80}
+    res = g.invoke(
+        {"linkedin_inputs": ["Self-funded PhD, no stipend. Prof X (x@uni.edu)."],
+         "run_mode": "reactive"},
+        cfg)
+    assert "__interrupt__" in res, "reactive mode must reach the approval interrupt"
+    payload = res["__interrupt__"][0].value
+    assert payload["subject"] and payload["body"]
+    # Funding signal is still parsed & persisted on the Opportunity so the
+    # dashboard can flag it, even though the gate did not block the draft.
+    from db import session as dbsession
+    with dbsession.session_scope() as s:
+        opp = s.query(Opportunity).first()
+        assert opp.funding_status in ("self-funded", "unfunded")
+
+
 def test_safety_scheduler_only_reachable_via_approval(graph_env):
     """Structural: the scheduler (the only send-adjacent node) has approval as
     its sole predecessor, so no path reaches sending without Human Approval."""

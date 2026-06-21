@@ -302,6 +302,21 @@ def _show_run_result(res):
         if docs:
             bundle += " + " + ", ".join(d["title"].split(" — ")[0] for d in docs)
         st.success(f"✅ Drafted **{bundle}** — waiting in **Approvals** (✅ in the sidebar).")
+        # Surface the funding/fit signals so a reactive submission is still flagged
+        # in case the draft was made against the user's better judgement.
+        intr = res.get("interrupt") or {}
+        flags = []
+        funding = intr.get("funding_status")
+        if funding and funding != "funded":
+            flags.append(f"funding: **{funding}**")
+        fit = intr.get("fit_score")
+        if fit is not None:
+            threshold = 50  # mirrors config/config.yaml default
+            if fit < threshold:
+                flags.append(f"fit: **{fit}** (below threshold {threshold})")
+        if flags:
+            st.caption("⚠️ " + " · ".join(flags) +
+                       " — drafted anyway because you submitted this explicitly.")
         if res.get("documents_error"):
             st.caption(f"⚠️ Some documents were skipped: {res['documents_error']}")
     else:
@@ -353,7 +368,7 @@ def page_prospecting():
     field = st.text_input("Field", "Medical Imaging")
     if st.button("Prospect this professor"):
         seed = {"name": name, "university": university, "country": country, "field": field}
-        res = api_post("/runs", {"professor_list": [seed]})
+        res = api_post("/runs", {"professor_list": [seed], "run_mode": "reactive"})
         if res:
             st.success(f"Run {res['thread_id']}: {res['status']}. "
                        "Approvable drafts appear under Approvals.")

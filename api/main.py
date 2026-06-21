@@ -61,6 +61,10 @@ class RunRequest(BaseModel):
     target_fields: Optional[list[str]] = None
     target_countries: Optional[list[str]] = None
     thread_id: Optional[str] = None
+    # "reactive" = user submitted the posting themselves; bypass funding/fit/quality
+    # gates so the run always reaches a draft in Approvals. "proactive" (or unset)
+    # = autonomous discovery, all gates apply.
+    run_mode: Optional[str] = None
 
 
 class ResumeRequest(BaseModel):
@@ -147,6 +151,8 @@ def start_run(req: RunRequest) -> dict:
         state["target_fields"] = req.target_fields
     if req.target_countries is not None:
         state["target_countries"] = req.target_countries
+    if req.run_mode is not None:
+        state["run_mode"] = req.run_mode
 
     result = GRAPH.invoke(state, _run_config(thread_id))
     payload = _interrupt_payload(result)
@@ -201,7 +207,7 @@ def auto_apply(req: AutoApplyRequest) -> dict:
     if not text.strip():
         raise HTTPException(
             422, "Provide posting text, or a URL we can fetch (it may be blocked by robots.txt).")
-    result = _finish_auto_apply(start_run(RunRequest(linkedin_inputs=[text])))
+    result = _finish_auto_apply(start_run(RunRequest(linkedin_inputs=[text], run_mode="reactive")))
     if req.url:
         result["source_url"] = req.url
     return result
@@ -257,7 +263,7 @@ def ingest_file(file: UploadFile = File(...)) -> dict:
     if not text.strip():
         raise HTTPException(422, f"No text could be extracted from {fname!r}.")
 
-    result = _finish_auto_apply(start_run(RunRequest(linkedin_inputs=[text])))
+    result = _finish_auto_apply(start_run(RunRequest(linkedin_inputs=[text], run_mode="reactive")))
     result["extraction"] = {"method": method, "char_count": len(text)}
     return result
 
@@ -774,12 +780,17 @@ def discover(req: DiscoverRequest) -> dict:
 
 @app.post("/discover/run")
 def discover_run(req: DiscoverRunRequest) -> dict:
-    """Fetch a chosen discovered posting and run it through the pipeline."""
+    """Fetch a chosen discovered posting and run it through the pipeline.
+
+    The user picked this posting from the discovered list and asked to apply —
+    treat as reactive so it always reaches a draft, even if the URL text lacks
+    a 'fully funded' signal or the parse score is low.
+    """
     from modules import discovery
     text = discovery.fetch_page_text(req.url)
     if not text:
         raise HTTPException(422, f"could not fetch {req.url!r} (blocked or empty)")
-    result = start_run(RunRequest(linkedin_inputs=[text]))
+    result = start_run(RunRequest(linkedin_inputs=[text], run_mode="reactive"))
     result["source_url"] = req.url
     return result
 

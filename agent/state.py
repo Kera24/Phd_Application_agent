@@ -57,6 +57,7 @@ class OppState(TypedDict, total=False):
     user_profile: dict
     uploaded_documents: dict
     email_templates: dict
+    run_mode: str                       # propagated from OutreachState; 'reactive' bypasses gates
 
     opportunity_id: int
     route: str                          # terminal/branch marker

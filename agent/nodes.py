@@ -80,7 +80,15 @@ def parse_node(state: dict) -> dict:
 
 
 def funding_route(state: dict) -> str:
-    """Conditional edge after parse — Rule 0. Routes in Python from the gate."""
+    """Conditional edge after parse — Rule 0. Routes in Python from the gate.
+
+    In reactive mode (user submitted the posting themselves) the funding gate is
+    bypassed: any pipeline_status routes into research. The funding signal is
+    still parsed and persisted on the Opportunity so the dashboard can flag it,
+    but it does not stop the run from drafting.
+    """
+    if state.get("run_mode") == "reactive":
+        return "research"
     status = state["parsed_opportunities"][-1]["pipeline_status"]
     if status == "archived_not_funded":
         return "archived"
@@ -151,6 +159,10 @@ def score_node(state: dict) -> dict:
 def score_route(state: dict) -> str:
     oid = state["opportunity_id"]
     total = state["fit_scores"][str(oid)]["total"]
+    # In reactive mode the user submitted this themselves — fit score is advisory,
+    # not gating. Always draft.
+    if state.get("run_mode") == "reactive":
+        return "summary"
     threshold = config_loader.config().get("fit_score_threshold", 50)
     return "summary" if total >= threshold else "parked"
 
@@ -207,7 +219,16 @@ def email_writer_node(state: dict) -> dict:
 
 
 def quality_route(state: dict) -> str:
-    """Conditional edge: pass -> gmail_draft; fail -> retry once -> needs_review."""
+    """Conditional edge: pass -> gmail_draft; fail -> retry once -> needs_review.
+
+    In reactive mode (user submitted the posting themselves) the quality gate is
+    advisory only: the draft always proceeds to gmail_draft so the user gets a
+    draft to review in Approvals. The quality report is still attached to the
+    Email row so the dashboard can flag it; the user owns the consequence of
+    approving a low-quality draft.
+    """
+    if state.get("run_mode") == "reactive":
+        return "gmail_draft"
     oid = state["opportunity_id"]
     draft = state["email_drafts"][str(oid)]
     if draft.get("passed"):
@@ -325,6 +346,8 @@ def approval_node(state: dict) -> dict:
             "quality_report": email.quality_gate_report,
             "fit_score": opp.fit_score if opp else None,
             "score_breakdown": opp.score_breakdown if opp else None,
+            "funding_status": opp.funding_status if opp else None,
+            "funding_evidence": opp.funding_evidence if opp else None,
             "professor": {
                 "name": prof.name if prof else None,
                 "papers": (prof.recent_papers or []) if prof else [],

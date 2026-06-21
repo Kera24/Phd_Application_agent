@@ -91,6 +91,9 @@ def fan_out(state: dict):
             "uploaded_documents": state.get("uploaded_documents", {}),
             "email_templates": state.get("email_templates", {}),
             "email_retries": 0,
+            # Propagate the submission mode so per-opportunity routing
+            # (funding/score/quality gates) honours reactive vs proactive.
+            "run_mode": state.get("run_mode"),
         }))
     return sends
 
