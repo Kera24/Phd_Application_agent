@@ -38,12 +38,12 @@ def test_citation_rejects_unverified():
 
 
 def test_word_count_bounds():
-    short = "word " * 50
+    short = "word " * 100
     ok, n = quality_gate.check_word_count(short)
-    assert not ok and n == 50
-    good = "word " * 150
+    assert not ok and n == 100
+    good = "word " * 260
     ok, n = quality_gate.check_word_count(good)
-    assert ok and n == 150
+    assert ok and n == 260
 
 
 def test_banned_phrases():

@@ -2,8 +2,8 @@
 # The LLM is instructed with these constraints; the quality gate enforces them.
 
 shared_constraints:
-  body_word_min: 120
-  body_word_max: 180
+  body_word_min: 220
+  body_word_max: 320
   subject_max_words: 9
   tone: professional, direct, specific
   forbid:
@@ -16,6 +16,16 @@ shared_constraints:
     - state one angle Raj could contribute, tied to his real background
     - name the professor correctly
     - only claims traceable to profile.yaml
+
+# Per-paragraph target word counts. The LLM is told the targets explicitly; the
+# deterministic fallback is laid out as 6 paragraphs and padded to stay in range.
+_para_targets:
+  hook: 30
+  gap: 50
+  angle: 60
+  evidence: 50
+  ask: 40
+  signoff: 15
 
 # Project-to-lab matching guidance given to the drafting model.
 project_matching:
@@ -30,21 +40,20 @@ templates:
   advertised:
     subject_hint: "Mention the specific position; <=9 words."
     structure:
-      - "Specific opening: position/lab/professor + one recent verified paper or theme."
-      - "One sentence on a gap or open question in their recent work."
-      - "One sentence on the angle Raj could explore, tied to his actual background."
-      - "Two sentences max on Raj's relevant credentials (matched project only)."
-      - "Clear ask: PhD supervision / application consideration + availability for a short call."
-      - "Attachment list."
+      - "Hook (1-2 sentences, ~30 words): position title + lab + the most relevant verified paper cited by exact title + one clause of context for WHY the paper matters (a method or finding, not 'I found it interesting')."
+      - "Gap (1-2 sentences, ~50 words): what the paper does not yet address, grounded in the identified_gap field. Do not invent gaps."
+      - "Angle (2 sentences, ~60 words): what Raj could explore, tied to the foregrounded project's method (e.g. ViT, contrastive learning, RAG, SAE features). Name the method."
+      - "Evidence (2 sentences, ~50 words): one concrete, traceable result or dataset from the foregrounded project (e.g. 'VinDr-Mammo explainability work'), not a generic adjective. No claims outside profile.yaml."
+      - "Ask (1-2 sentences, ~40 words): explicit ask to be considered for the position + a 15-min call in the professor's timezone window (Mon-Thu 08-09 local)."
+      - "Attachments + sign-off (~15 words): one attachment line + 'Kind regards, Raj Kumar Sah'."
     default_attachments: [cv, transcript, summary_pdf]
 
   speculative:
     subject_hint: "Include 'Prospective PhD applicant' + topic; <=9 words."
     structure:
-      - "Specific opening grounded in one recent verified paper/theme (never 'do you have openings' first)."
-      - "One sentence connecting that theme to a gap + the angle Raj could explore."
-      - "Two sentences max on Raj's relevant credentials (matched project only)."
-      - "Honest ask: seeking a FULLY FUNDED PhD; do they anticipate openings in the coming intake, or can they advise on upcoming funded calls (DAAD/MSCA/ERC/EPSRC/SNSF/ARC as relevant)?"
-      - "Offer to send further materials / availability for a short call."
-      - "Attachment list (CV + tailored summary by default; transcript on request)."
+      - "Hook (1-2 sentences, ~30 words): grounded in one recent verified paper/theme (NEVER 'do you have openings' first). Cite the paper by exact title + one clause of method/finding context."
+      - "Gap (1-2 sentences, ~50 words): one sentence connecting that theme to a gap; one sentence naming the angle Raj could explore."
+      - "Angle + Evidence (3 sentences, ~110 words): foregrounded project's method + one concrete, traceable result or dataset from Raj's work. No claims outside profile.yaml."
+      - "Ask (1-2 sentences, ~40 words): honest funded-PhD ask: do they anticipate openings in the coming intake, or can they advise on upcoming funded calls (DAAD/MSCA/ERC/EPSRC/SNSF/ARC as relevant)? Offer to send further materials / a 15-min call."
+      - "Attachments + sign-off (~15 words): one attachment line + 'Kind regards, Raj Kumar Sah'."
     default_attachments: [cv, summary_pdf]   # transcript only on request — lighter speculative email

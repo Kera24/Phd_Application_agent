@@ -441,22 +441,40 @@ def _render_interrupt_approval(item):
         for paper in (prof.get("papers") or []):
             st.write(f"- {paper['title']} ({paper.get('year')})")
 
-        # Application documents the listing asked for (generated alongside the email).
+        # Pull generated documents (SOP / cover / proposal) for inline review. Email
+        # is rendered in the first tab so the user can compare side-by-side.
         oid = intr.get("opportunity_id")
+        docs = []
         if oid:
             docs = (api_get(f"/opportunities/{oid}/documents") or {}).get("documents", [])
             docs = [d for d in docs if d.get("kind") != "email"]
-            if docs:
-                st.write("**Application documents drafted:**")
-                for d in docs:
-                    dc1, dc2 = st.columns([3, 1])
-                    dc1.write(f"- 📄 {d['title']}")
-                    dc2.link_button("⬇ PDF", f"{API}/documents/{d['id']}/pdf")
 
         report = intr.get("quality_report") or {}
         st.caption(f"Quality gate: {'✅ passed' if report.get('passed') else '❌'}")
-        subject = st.text_input("Subject", intr["subject"], key=f"s_{tid}")
-        body = st.text_area("Body", intr["body"], height=240, key=f"bd_{tid}")
+
+        # Tabs: 📧 Email (editable) | one tab per generated document (read-only preview)
+        tab_labels = ["📧 Email"] + [f"📄 {d['title']}" for d in docs]
+        tabs = st.tabs(tab_labels) if tab_labels else [st.container()]
+        with tabs[0]:
+            subject = st.text_input("Subject", intr["subject"], key=f"s_{tid}")
+            body = st.text_area("Body", intr["body"], height=360, key=f"bd_{tid}")
+        for tab, d in zip(tabs[1:], docs):
+            with tab:
+                content = d.get("content") or ""
+                wc = len(content.split())
+                st.caption(f"{wc} words · {len(content)} characters · {d.get('kind', '').upper()}")
+                # Read-only by default so the user cannot accidentally mutate the doc
+                # here; the Apply page (page_apply) is the place to edit documents.
+                st.text_area("Content", content, height=360,
+                             key=f"doc_{tid}_{d['id']}", disabled=True)
+                st.download_button(
+                    "⬇ Download PDF",
+                    data=_fetch_doc_pdf(d["id"]),
+                    file_name=f"{d.get('title', 'document')}.pdf",
+                    mime="application/pdf",
+                    key=f"dl_{tid}_{d['id']}",
+                )
+
         c1, c2, c3 = st.columns(3)
         if c1.button("✅ Approve", key=f"ap_{tid}"):
             edited = subject != intr["subject"] or body != intr["body"]
@@ -475,6 +493,15 @@ def _render_interrupt_approval(item):
                 st.warning("Rejected.")
                 st.rerun()
         c3.text_input("Reject reason", key=f"rsn_{tid}")
+
+
+@st.cache_data(show_spinner=False)
+def _fetch_doc_pdf(doc_id: int) -> bytes:
+    """Fetch a generated document's PDF and cache it (the URL is stable for the
+    document's lifetime)."""
+    r = requests.get(f"{API}/documents/{doc_id}/pdf", timeout=60)
+    r.raise_for_status()
+    return r.content
 
 
 def _render_followup_approval(item):

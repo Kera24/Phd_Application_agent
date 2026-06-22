@@ -95,8 +95,8 @@ reply_detection:
 
 # --- Quality gate -----------------------------------------------------------
 quality_gate:
-  body_word_min: 120
-  body_word_max: 180
+  body_word_min: 220
+  body_word_max: 320
   subject_max_words: 9
   banned_phrases:
     - "I am writing to express"
