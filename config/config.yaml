@@ -104,6 +104,13 @@ quality_gate:
     - "I came across"
     - "I hope this email finds you well"
     - "to whom it may concern"
+    # Repetitive openers the LLM falls back to when it cannot find a hook.
+    # Banned here so the quality gate catches them before approval.
+    - "I am interested in"
+    - "I am fascinated by"
+    - "I am drawn to"
+    - "I am passionate about"
+    - "I have always been passionate"
 
 # --- Paths ------------------------------------------------------------------
 paths:

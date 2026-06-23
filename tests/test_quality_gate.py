@@ -51,6 +51,24 @@ def test_banned_phrases():
     assert not ok and "I hope this email finds you well" in hits
 
 
+def test_banned_phrases_repetitive_openers():
+    """The new spec calls out repetitive AI-sounding openers — the quality
+    gate must reject them before they reach the Approvals queue."""
+    for phrase in (
+        "I am interested in your work",
+        "I am fascinated by your research",
+        "I am drawn to medical imaging",
+        "I am passionate about deep learning",
+        "I have always been passionate about AI",
+    ):
+        ok, hits = quality_gate.check_banned_phrases(phrase)
+        assert not ok, f"quality gate failed to ban: {phrase!r}"
+        assert any(p in hits for p in (
+            "I am interested in", "I am fascinated by", "I am drawn to",
+            "I am passionate about", "I have always been passionate",
+        )), f"unexpected hit set for {phrase!r}: {hits}"
+
+
 def test_gap_and_angle_markers():
     has_gap, has_angle = quality_gate.check_gap_and_angle(
         "This remains an open question. I could contribute methods from my work.")

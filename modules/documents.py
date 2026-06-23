@@ -150,6 +150,14 @@ def _prompt(kind: str, ctx: dict) -> str:
     skills_block = config_loader.skills_section(_KIND_SKILLS_SECTION[kind])
     return (
         f"{brief}\n\n"
+        # The handshake that runs BEFORE drafting: forces the model to do the
+        # 5-step research-fit analysis (skills.md -> "Research-fit workflow")
+        # rather than jumping straight into paragraph 1.
+        "Follow the 5-step research-fit workflow in skills.md (Research-fit "
+        "workflow section) before drafting — analyse the lab's fit, "
+        "foreground one project from the profile, identify a plausible gap "
+        "from the cited paper, draft, then self-check that the result reads "
+        "like a future researcher rather than a job applicant.\n\n"
         f"APPLICANT PROFILE (ground truth):\n{ctx['profile_json']}\n\n"
         f"PROFESSOR: {ctx['prof']} — {ctx['university']}\n"
         f"POSITION: {ctx['position']}\n"

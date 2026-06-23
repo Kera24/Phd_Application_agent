@@ -13,6 +13,13 @@ contact:
   scholar: ""
 
 education:
+  - degree: Bachelor in Information Technology and Mathematical Innovation
+    institution: ""            # fill in if known
+    completed: ""
+    notes: >-
+      Strong foundations in linear algebra, calculus, optimization,
+      probability, statistics, numerical methods, machine learning, and
+      deep learning.
   - degree: Master of Data Science
     institution: Charles Darwin University
     completed: "2025-07"

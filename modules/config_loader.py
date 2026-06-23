@@ -84,35 +84,50 @@ def skills() -> str:
 
 def skills_section(heading: str) -> str:
     """Return the markdown block under a `## N. {heading}` or `## {heading}`
-    section in skills.md.
+    section in skills.md, or a `### {heading}` subsection.
 
     Sections are matched by their trailing heading text (case-insensitive,
     leading whitespace ignored, optional numeric prefix `1. ` etc. stripped).
-    Returns "" if the section is missing — callers can fall back gracefully.
+    The match is a *prefix* match on the heading line, so callers can pass
+    just the canonical title — e.g. ``"Research-fit workflow"`` matches
+    ``## 1. Research-fit workflow (run before drafting any application
+    artefact)``. Returns "" if the section is missing — callers can fall
+    back gracefully.
     """
     target = heading.strip().lower()
     text = skills()
     lines = text.splitlines()
     start = None
+    level = None  # the heading level (2 or 3) that owns this section
     for i, line in enumerate(lines):
         stripped = line.strip()
-        if not stripped.startswith("## "):
+        # Match `## N. X` or `## X` (level 2), or `### X` (level 3).
+        lvl = None
+        if stripped.startswith("## ") and not stripped.startswith("### "):
+            lvl = 2
+            heading_text = stripped[3:].strip()
+        elif stripped.startswith("### "):
+            lvl = 3
+            heading_text = stripped[4:].strip()
+        if lvl is None:
             continue
-        heading_text = stripped[3:].strip()
         # Strip a leading `1. ` / `2. ` style numeric prefix.
         if ". " in heading_text:
             head, _, tail = heading_text.partition(". ")
             if head.strip().isdigit():
                 heading_text = tail.strip()
-        if heading_text.lower() == target:
+        if heading_text.lower().startswith(target):
             start = i + 1
+            level = lvl
             break
     if start is None:
         return ""
-    # Collect until next `## ` heading at the same level.
+    # Collect until the next heading at the SAME or SHALLOWER level.
+    marker = "#" * level + " "
     end = len(lines)
     for j in range(start, len(lines)):
-        if lines[j].strip().startswith("## "):
+        s = lines[j].strip()
+        if s.startswith(marker):
             end = j
             break
     return "\n".join(lines[start:end]).strip()
