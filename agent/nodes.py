@@ -309,7 +309,7 @@ def intake_node(state: dict) -> dict:
     """Load profile/templates/config; surface any document warnings."""
     update = {
         "user_profile": state.get("user_profile") or config_loader.profile(),
-        "email_templates": state.get("email_templates") or config_loader.email_templates(),
+        "email_templates": state.get("email_templates") or config_loader.email_template(),
         "target_fields": state.get("target_fields") or config_loader.config().get("target_fields", []),
         "target_countries": state.get("target_countries") or config_loader.config().get("target_countries", []),
     }

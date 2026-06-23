@@ -57,3 +57,11 @@ templates:
       - "Ask (1-2 sentences, ~40 words): honest funded-PhD ask: do they anticipate openings in the coming intake, or can they advise on upcoming funded calls (DAAD/MSCA/ERC/EPSRC/SNSF/ARC as relevant)? Offer to send further materials / a 15-min call."
       - "Attachments + sign-off (~15 words): one attachment line + 'Kind regards, Raj Kumar Sah'."
     default_attachments: [cv, summary_pdf]   # transcript only on request — lighter speculative email
+
+  followup:
+    subject_hint: "Begin with 'Re:' + the original subject; <=9 words."
+    structure:
+      - "Warm one-line reference to the earlier email (no guilt, no pressure)."
+      - "Restate the interest in one sentence (the same direction, no new claims)."
+      - "Offer to share further materials or hold a short call."
+      - "One-line sign-off."

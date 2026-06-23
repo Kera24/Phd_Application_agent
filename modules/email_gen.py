@@ -77,6 +77,11 @@ def _para_targets() -> dict:
     return merged
 
 
+def _email_skills() -> str:
+    """The Email section from skills.md, falling back to empty when missing."""
+    return config_loader.skills_section("Email (advertised + speculative)")
+
+
 def _draft_prompt(opp, prof, project, profile, kinds) -> str:
     tmpl = config_loader.email_template()
     key = "advertised" if opp.opportunity_type == "advertised" else "speculative"
@@ -88,6 +93,7 @@ def _draft_prompt(opp, prof, project, profile, kinds) -> str:
     structure = "\n".join(f"{i+1}. {s}" for i, s in enumerate(spec["structure"]))
     targets = _para_targets()
     target_block = ", ".join(f"{k}={v}" for k, v in targets.items())
+    skills_block = _email_skills()
     return (
         f"Write a {key} PhD outreach email body for {profile['name']} to "
         f"Professor {prof.name if prof else opp.professor_name}.\n\n"
@@ -110,7 +116,9 @@ def _draft_prompt(opp, prof, project, profile, kinds) -> str:
         f"End the body with an attachment line listing: {', '.join(kinds)}.\n"
         f"Only state facts about {profile['name']} from the foregrounded project. "
         f"If a fact is not in the project detail above, do NOT assert it.\n\n"
-        'Return JSON: {"subject": "...", "body": "..."}.'
+        + (f"WRITING PLAYBOOK (skills.md → Email section):\n{skills_block}\n\n"
+           if skills_block else "")
+        + 'Return JSON: {"subject": "...", "body": "..."}.'
     )
 
 
@@ -245,13 +253,14 @@ def generate_email(session: Session, opp: Opportunity,
 
 
 def _followup_prompt(original: Email, prof, profile) -> str:
-    tmpl = config_loader.email_templates().get("followup", {})
+    tmpl = config_loader.email_template().get("templates", {}).get("followup", {})
     cfg = config_loader.config().get("followup", {})
     name = prof.name if prof else (original.opportunity.professor_name if original.opportunity else "")
     paper = ""
     if prof and prof.recent_papers:
         paper = prof.recent_papers[0]["title"]
     structure = "\n".join(f"{i+1}. {s}" for i, s in enumerate(tmpl.get("structure", [])))
+    skills_block = config_loader.skills_section("Follow-up email")
     return (
         f"Write a brief, polite follow-up to a previous PhD outreach email from "
         f"{profile['name']} to Professor {name}. The original email has had no reply.\n\n"
@@ -260,8 +269,10 @@ def _followup_prompt(original: Email, prof, profile) -> str:
         f"Required structure:\n{structure}\n\n"
         f"Constraints: body {cfg.get('word_min', 40)}-{cfg.get('word_max', 90)} words; "
         f"warm but not pushy; reference the earlier email; restate the interest in one line; "
-        f"do NOT introduce any new claims about {profile['name']}; do NOT re-attach documents.\n"
-        'Return JSON: {"subject": "...", "body": "..."}.'
+        f"do NOT introduce any new claims about {profile['name']}; do NOT re-attach documents.\n\n"
+        + (f"WRITING PLAYBOOK (skills.md → Follow-up section):\n{skills_block}\n\n"
+           if skills_block else "")
+        + 'Return JSON: {"subject": "...", "body": "..."}.'
     )
 
 

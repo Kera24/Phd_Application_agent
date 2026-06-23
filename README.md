@@ -176,8 +176,11 @@ control of login, CAPTCHA, anything not in your profile, and the final submit.
 
 - `config/profile.yaml` — Raj's background (ground truth; never embellished).
 - `config/config.yaml` — countries, fields, caps, send mode, thresholds, paths.
-- `config/email_templates.yaml` — advertised + speculative templates and tone
-  rules (120–180 words, subject ≤ 9 words, banned phrases).
+- `config/email_template.yaml` — advertised + speculative + followup templates
+  and tone rules (220–320 words, subject ≤ 9 words, banned phrases).
+- `config/skills.md` — writing playbook (tone, structure, length bounds, what
+  to claim). The email + document generators stitch sections of this into
+  their prompts. Edit a section here and every subsequent run follows.
 
 ## Tests
 

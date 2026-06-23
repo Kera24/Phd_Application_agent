@@ -66,20 +66,65 @@ GEN_SYSTEM = (
     "work only via the exact paper titles provided. Be specific, honest, and concise."
 )
 
-# Per-kind instruction + rough length.
-_SPEC = {
-    "email": "a 150-200 word outreach email. Reference >=1 cited paper by exact title, "
-             "state the research gap, the research question, and your proposed approach, "
-             "and end with a clear, modest ask for a conversation.",
-    "sop": "a Statement of Purpose (~600-800 words, multiple paragraphs): motivation; your "
-           "background (from the profile only); specific fit with this professor's work "
-           "(the gap, question, approach, citing papers by exact title); why this "
-           "university/program; and your goals.",
-    "cover": "a cover / motivation letter (~400-500 words) for this specific position, "
-             "connecting your background to the role and the professor's research direction.",
-    "proposal": "a short research proposal (~600-800 words) with sections: Background, "
-                "Research Gap, Research Question, Proposed Approach/Methodology, Expected "
-                "Contribution, and References (list the cited papers by exact title).",
+# Per-kind length target (words). 800-900 across the application artefacts is
+# competitive — these are read end-to-end by committees.
+_KIND_LEN = {
+    "email": (150, 200),
+    "sop": (800, 900),
+    "cover": (800, 900),
+    "proposal": (800, 900),
+}
+
+# Per-kind structural brief, expressed as one paragraph the model sees alongside
+# the skills.md section. The skills.md section supplies the voice + paragraphs;
+# this supplies the contract.
+_KIND_BRIEF = {
+    "email": (
+        "Write an outreach email of {lo}-{hi} words. Reference >=1 cited paper "
+        "by exact title, state the research gap, the research question, and "
+        "your proposed approach, and end with a clear, modest ask for a "
+        "conversation."
+    ),
+    "sop": (
+        "Write a Statement of Purpose of {lo}-{hi} words across 7-9 "
+        "paragraphs: opening motivation, academic background, research "
+        "experience (one named project with concrete result), research "
+        "interests and fit with this group (gap + question + approach), why "
+        "this program/department, career goals, closing."
+    ),
+    "cover": (
+        "Write a cover / motivation letter of {lo}-{hi} words for this "
+        "specific position. Salutation, motivation hook (why THIS professor, "
+        "grounded in one verified paper), relevant background (one named "
+        "project from profile), specific fit (gap, question, method), "
+        "first-year contribution (one concrete deliverable), why this "
+        "university/program (a specific resource), ask + closing."
+    ),
+    "proposal": (
+        "Write a short research proposal of {lo}-{hi} words with these "
+        "sections (use markdown headings): Background, Research Gap, "
+        "Research Question, Proposed Methodology, Expected Contribution, "
+        "Work Plan (3 milestones over 12 months), and References (list the "
+        "cited papers by exact title)."
+    ),
+}
+
+# Per-kind LLM max_tokens — output budget sized to fit the upper word bound
+# plus the prompt + system prompt without truncation. The default in config.yaml
+# is 2000 which is too small for 900-word outputs.
+_KIND_MAX_TOKENS = {
+    "email": 1500,
+    "sop": 3500,
+    "cover": 3500,
+    "proposal": 3500,
+}
+
+# Section heading in skills.md to inject for each kind.
+_KIND_SKILLS_SECTION = {
+    "email": "Email (advertised + speculative)",
+    "sop": "Statement of Purpose",
+    "cover": "Cover / Motivation letter",
+    "proposal": "Research Proposal",
 }
 
 
@@ -100,8 +145,11 @@ def _context(opp: Opportunity, prof: Optional[Professor], brief: dict, profile: 
 
 
 def _prompt(kind: str, ctx: dict) -> str:
+    lo, hi = _KIND_LEN[kind]
+    brief = _KIND_BRIEF[kind].format(lo=lo, hi=hi)
+    skills_block = config_loader.skills_section(_KIND_SKILLS_SECTION[kind])
     return (
-        f"Write {_SPEC[kind]}\n\n"
+        f"{brief}\n\n"
         f"APPLICANT PROFILE (ground truth):\n{ctx['profile_json']}\n\n"
         f"PROFESSOR: {ctx['prof']} — {ctx['university']}\n"
         f"POSITION: {ctx['position']}\n"
@@ -109,7 +157,9 @@ def _prompt(kind: str, ctx: dict) -> str:
         f"RESEARCH QUESTION: {ctx['question']}\n"
         f"PROPOSED APPROACH: {ctx['approach']}\n"
         f"PAPERS YOU MAY CITE (exact titles only): {ctx['cites']}\n\n"
-        "Output only the document text (no preamble, no markdown headers unless natural)."
+        + (f"WRITING PLAYBOOK (skills.md → {_KIND_SKILLS_SECTION[kind]} section):\n"
+           f"{skills_block}\n\n" if skills_block else "")
+        + "Output only the document text (no preamble, no markdown headers unless natural)."
     )
 
 
@@ -129,7 +179,11 @@ def _generate_one(kind: str, opp, prof, brief: dict, profile: dict) -> dict:
     ctx = _context(opp, prof, brief, profile)
     if llm.available():
         try:
-            content = llm.complete(_prompt(kind, ctx), system=GEN_SYSTEM, max_tokens=2000)
+            content = llm.complete(
+                _prompt(kind, ctx),
+                system=GEN_SYSTEM,
+                max_tokens=_KIND_MAX_TOKENS[kind],
+            )
         except Exception:
             content = _fallback(kind, ctx)
     else:

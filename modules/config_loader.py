@@ -74,9 +74,48 @@ def email_template() -> dict[str, Any]:
     return _load("email_template.yaml")
 
 
-def email_templates() -> dict[str, Any]:
-    """Plural file used by the LangGraph system (same structure)."""
-    return _load("email_templates.yaml")
+@functools.lru_cache(maxsize=1)
+def skills() -> str:
+    """Markdown writing playbook. Single source of truth for tone, structure,
+    and length bounds across the email + SOP/cover/proposal generators."""
+    with open(CONFIG_DIR / "skills.md", "r", encoding="utf-8") as fh:
+        return fh.read()
+
+
+def skills_section(heading: str) -> str:
+    """Return the markdown block under a `## N. {heading}` or `## {heading}`
+    section in skills.md.
+
+    Sections are matched by their trailing heading text (case-insensitive,
+    leading whitespace ignored, optional numeric prefix `1. ` etc. stripped).
+    Returns "" if the section is missing — callers can fall back gracefully.
+    """
+    target = heading.strip().lower()
+    text = skills()
+    lines = text.splitlines()
+    start = None
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        if not stripped.startswith("## "):
+            continue
+        heading_text = stripped[3:].strip()
+        # Strip a leading `1. ` / `2. ` style numeric prefix.
+        if ". " in heading_text:
+            head, _, tail = heading_text.partition(". ")
+            if head.strip().isdigit():
+                heading_text = tail.strip()
+        if heading_text.lower() == target:
+            start = i + 1
+            break
+    if start is None:
+        return ""
+    # Collect until next `## ` heading at the same level.
+    end = len(lines)
+    for j in range(start, len(lines)):
+        if lines[j].strip().startswith("## "):
+            end = j
+            break
+    return "\n".join(lines[start:end]).strip()
 
 
 def save_config(data: dict[str, Any]) -> None:
