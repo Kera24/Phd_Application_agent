@@ -88,3 +88,83 @@ def test_draft_prompt_carries_paragraph_brief():
         assert f"{i}. " in prompt, f"missing paragraph {i} in prompt"
     # The 6 paragraph names are signposted in the structure.
     assert "Ask" in prompt and "Attachments" in prompt
+
+
+# ---------------------------------------------------------------------------
+# Banned-phrase prompt wiring (see plan: rippling-roaming-pudding.md).
+# Regression: a draft used to slip through with "I am writing to express…"
+# because the LLM prompt only listed abstract forbid categories, never the
+# literal phrases the quality gate would reject.
+# ---------------------------------------------------------------------------
+
+
+def _prompt(opp_type="advertised"):
+    profile = config_loader.profile()
+    project = email_gen.select_project(_opp(opp_type), _prof(), profile)
+    return email_gen._draft_prompt(_opp(opp_type), _prof(), project, profile,
+                                   ["cv", "transcript", "summary_pdf"])
+
+
+def test_draft_prompt_lists_every_banned_phrase_verbatim():
+    """The LLM must see every banned phrase by literal text so it produces
+    compliant output on the first attempt (the post-generation gate is
+    reactive-mode advisory only)."""
+    prompt = _prompt()
+    banned = config_loader.config()["quality_gate"]["banned_phrases"]
+    assert banned, "banned-phrase list is empty — config drift"
+    for phrase in banned:
+        assert f'"{phrase}"' in prompt, (
+            f"draft prompt missing literal banned phrase: {phrase!r}"
+        )
+    # And the prompt must signpost them as rejections, not just background info.
+    assert "NEVER use" in prompt or "quality gate rejects" in prompt
+
+
+def test_draft_prompt_hook_has_anti_pattern_clause():
+    """The hook paragraph spec must enumerate the banned openers so the LLM
+    has a concrete anti-pattern, not just an abstract 'no generic openings'
+    instruction."""
+    prompt = _prompt("advertised")
+    for banned_opener in (
+        "I am writing to express",
+        "I am writing to",
+        "I am interested in",
+        "I am drawn to",
+        "I am fascinated by",
+    ):
+        assert banned_opener in prompt, (
+            f"hook anti-pattern missing opener: {banned_opener!r}"
+        )
+    # And the speculative hook too.
+    prompt_spec = _prompt("speculative")
+    for banned_opener in (
+        "I am writing to express",
+        "I am interested in",
+        "I am drawn to",
+        "I am fascinated by",
+    ):
+        assert banned_opener in prompt_spec, (
+            f"speculative hook anti-pattern missing opener: {banned_opener!r}"
+        )
+
+
+def test_draft_prompt_still_carries_categories_block():
+    """The categories (flattery padding, buzzword strings, …) are still in
+    the prompt as tone guidance, alongside the literal phrase list."""
+    prompt = _prompt()
+    assert "flattery padding" in prompt
+    assert "buzzword strings" in prompt
+
+
+def test_email_template_forbid_phrases_matches_quality_gate():
+    """The YAML's forbid.phrases must equal config.yaml's banned_phrases —
+    one source of truth, the email template carries a hand-copy for the
+    loader to render. Drift here would mean the LLM prompt is missing
+    phrases the gate catches."""
+    yaml_phrases = list(config_loader.email_template()
+                        ["shared_constraints"]["forbid"]["phrases"])
+    cfg_phrases = list(config_loader.config()["quality_gate"]["banned_phrases"])
+    assert sorted(yaml_phrases) == sorted(cfg_phrases), (
+        f"email_template.yaml::forbid.phrases ({yaml_phrases}) does not match "
+        f"config.yaml::quality_gate.banned_phrases ({cfg_phrases})"
+    )

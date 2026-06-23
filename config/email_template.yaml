@@ -7,9 +7,27 @@ shared_constraints:
   subject_max_words: 9
   tone: professional, direct, specific
   forbid:
-    - flattery padding
-    - buzzword strings
-    - generic openings ("I came across your profile")
+    # Tone-level categories — kept for guidance, enforced by review.
+    categories:
+      - flattery padding
+      - buzzword strings
+      - generic openings ("I came across your profile")
+    # Literal phrases — must match config.yaml::quality_gate.banned_phrases
+    # exactly. The post-generation quality gate rejects drafts that contain
+    # any of these, and the LLM prompt below also names them so the model
+    # avoids them on the first attempt. A test asserts the two lists stay
+    # in sync (see tests/test_email_template.py).
+    phrases:
+      - "I am writing to express"
+      - "esteemed"
+      - "I came across"
+      - "I hope this email finds you well"
+      - "to whom it may concern"
+      - "I am interested in"
+      - "I am fascinated by"
+      - "I am drawn to"
+      - "I am passionate about"
+      - "I have always been passionate"
   must:
     - cite at least one verified recent paper by exact title
     - state one concrete gap / open question grounded in their work
@@ -40,7 +58,7 @@ templates:
   advertised:
     subject_hint: "Mention the specific position; <=9 words."
     structure:
-      - "Hook (1-2 sentences, ~30 words): position title + lab + the most relevant verified paper cited by exact title + one clause of context for WHY the paper matters (a method or finding, not 'I found it interesting')."
+      - "Hook (1-2 sentences, ~30 words): position title + lab + the most relevant verified paper cited by exact title + one clause of context for WHY the paper matters (a method or finding, not 'I found it interesting'). Do NOT open with 'I am writing to express…', 'I am writing to…', 'Dear Professor, I am…', 'I am interested in…', 'I am drawn to…', 'I am fascinated by…', or any variant of 'I am writing / I am interested / I am drawn / I am passionate'. The hook's first sentence must name the position, the cited paper, and one method/finding clause."
       - "Gap (1-2 sentences, ~50 words): what the paper does not yet address, grounded in the identified_gap field. Do not invent gaps."
       - "Angle (2 sentences, ~60 words): what Raj could explore, tied to the foregrounded project's method (e.g. ViT, contrastive learning, RAG, SAE features). Name the method."
       - "Evidence (2 sentences, ~50 words): one concrete, traceable result or dataset from the foregrounded project (e.g. 'VinDr-Mammo explainability work'), not a generic adjective. No claims outside profile.yaml."
@@ -51,7 +69,7 @@ templates:
   speculative:
     subject_hint: "Include 'Prospective PhD applicant' + topic; <=9 words."
     structure:
-      - "Hook (1-2 sentences, ~30 words): grounded in one recent verified paper/theme (NEVER 'do you have openings' first). Cite the paper by exact title + one clause of method/finding context."
+      - "Hook (1-2 sentences, ~30 words): grounded in one recent verified paper/theme (NEVER 'do you have openings' first). Cite the paper by exact title + one clause of method/finding context. Do NOT open with 'I am writing to express…', 'I am writing to…', 'Dear Professor, I am…', 'I am interested in…', 'I am drawn to…', 'I am fascinated by…', or any variant of 'I am writing / I am interested / I am drawn / I am passionate'."
       - "Gap (1-2 sentences, ~50 words): one sentence connecting that theme to a gap; one sentence naming the angle Raj could explore."
       - "Angle + Evidence (3 sentences, ~110 words): foregrounded project's method + one concrete, traceable result or dataset from Raj's work. No claims outside profile.yaml."
       - "Ask (1-2 sentences, ~40 words): honest funded-PhD ask: do they anticipate openings in the coming intake, or can they advise on upcoming funded calls (DAAD/MSCA/ERC/EPSRC/SNSF/ARC as relevant)? Offer to send further materials / a 15-min call."

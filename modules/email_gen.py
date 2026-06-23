@@ -94,6 +94,28 @@ def _draft_prompt(opp, prof, project, profile, kinds) -> str:
     targets = _para_targets()
     target_block = ", ".join(f"{k}={v}" for k, v in targets.items())
     skills_block = _email_skills()
+
+    # `forbid` may be either a flat list (legacy) or {categories: [...],
+    # phrases: [...]}. Flatten to both for the LLM — the literal phrase list
+    # is the most useful instruction (the gate rejects them) but the
+    # categories are still useful as tone guidance.
+    forbid = shared.get("forbid", {})
+    if isinstance(forbid, dict):
+        forbid_categories = list(forbid.get("categories") or [])
+        forbid_phrases = list(forbid.get("phrases") or [])
+    else:
+        forbid_categories = list(forbid or [])
+        forbid_phrases = []
+    # Always also pull the canonical banned-phrase list from config so the
+    # LLM sees it even if the YAML hand-copy drifted.
+    forbid_phrases = list(dict.fromkeys(
+        forbid_phrases + list(config_loader.config()
+                              .get("quality_gate", {}).get("banned_phrases", []))
+    ))
+
+    forbid_phrase_block = "\n".join(f'  - "{p}"' for p in forbid_phrases)
+    forbid_category_block = ", ".join(forbid_categories)
+
     return (
         f"Write a {key} PhD outreach email body for {profile['name']} to "
         f"Professor {prof.name if prof else opp.professor_name}.\n\n"
@@ -111,8 +133,11 @@ def _draft_prompt(opp, prof, project, profile, kinds) -> str:
         f"{structure}\n\n"
         f"Per-paragraph word targets: {target_block}.\n\n"
         f"Global constraints: body {shared['body_word_min']}-{shared['body_word_max']} words; "
-        f"subject <= {shared['subject_max_words']} words; tone {shared['tone']}; "
-        f"forbid: {', '.join(shared['forbid'])}. {spec['subject_hint']}\n"
+        f"subject <= {shared['subject_max_words']} words; tone {shared['tone']}.\n\n"
+        f"NEVER use these exact phrases — the quality gate rejects drafts that contain them:\n"
+        f"{forbid_phrase_block}\n\n"
+        f"Also avoid these tone categories: {forbid_category_block}.\n"
+        f"{spec['subject_hint']}\n"
         f"End the body with an attachment line listing: {', '.join(kinds)}.\n"
         f"Only state facts about {profile['name']} from the foregrounded project. "
         f"If a fact is not in the project detail above, do NOT assert it.\n\n"
